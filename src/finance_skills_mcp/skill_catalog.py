@@ -1,9 +1,14 @@
-"""Frozen in-memory skill catalog + Phase 1 seed (D-13, D-14, D-17).
+"""Frozen in-memory skill catalog dataclasses (D-13, D-14, D-17).
 
-Phase 1 wires the catalog by hand from ``_seed_catalog()`` — exactly ONE
-fixture entry (``fixture-skill-alpha``). Phase 2 swaps the seed for the
-dynamic disk-walking indexer; the ``Catalog`` and ``Skill`` shapes stay
-unchanged.
+Phase 2 / D-34 retired the Phase-1 hardcoded seed function that lived in this
+module — the catalog is now produced exclusively by
+:func:`finance_skills_mcp.skill_indexer.index`, which walks every root in
+``FSMC_SKILL_ROOTS`` (default ``skills/``) and validates each ``SKILL.md``
+frontmatter block. Persistence of the resulting catalog to
+``.skills-index/catalog.json`` is owned by
+:func:`finance_skills_mcp.skill_index_store.persist_index`. Nothing in this
+module touches disk, the environment, or the FastMCP lifespan; it just owns
+the ``Skill`` and ``Catalog`` wire shapes.
 
 The ``Skill.path`` field is a **relative string label** per RESEARCH.md
 Pitfall 9 — clients pick skills by ``name``, not by ``path``; the wire
@@ -43,28 +48,3 @@ class Catalog:
     """Immutable catalog. Frozen for the server's lifetime (init/spec.md)."""
 
     skills: tuple[Skill, ...]
-
-
-def _seed_catalog() -> Catalog:
-    """D-14/D-17: Phase 1 hardcodes one fixture skill entry.
-
-    Phase 2 replaces this with ``skill_indexer.index()`` (disk walk over
-    ``skills/*/SKILL.md``).
-    """
-    return Catalog(
-        skills=(
-            Skill(
-                id="fixture-skill-alpha",
-                name="fixture-skill-alpha",
-                description=(
-                    "Deterministic test fixture. Returns the prompt verbatim "
-                    "with a sentinel marker. Use only in tests."
-                ),
-                path="tests/fixtures/skills/fixture-skill-alpha",
-            ),
-        )
-    )
-
-
-# Public alias — the canonical name used by server.py lifespan.
-seed_catalog = _seed_catalog
