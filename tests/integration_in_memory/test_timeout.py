@@ -45,6 +45,9 @@ async def test_task_timeout_marks_failed(monkeypatch):
     a *task_id*, and status.json on disk reflects the timeout.
     """
     monkeypatch.setenv("ANTHROPIC_API_KEY", "mock-timeout-test-key")
+    # Phase 2 / D-23: route the indexer at the test-fixtures skill root so
+    # ``fixture-skill-alpha`` appears in the catalog (D-34 retired the seed).
+    monkeypatch.setenv("FSMC_SKILL_ROOTS", "tests/fixtures/skills")
     # TASK_TIMEOUT_SECONDS is a module-level constant captured at import time;
     # we override it directly. Float to match the asyncio.wait_for contract.
     monkeypatch.setattr(_task_manager_module, "TASK_TIMEOUT_SECONDS", 2.0)
@@ -124,6 +127,8 @@ async def test_lock_released_after_timeout(monkeypatch):
     heartbeat cancel). Without it the next call would BUSY indefinitely.
     """
     monkeypatch.setenv("ANTHROPIC_API_KEY", "mock-timeout-release-test-key")
+    # Phase 2 / D-23: route the indexer at the test-fixtures skill root.
+    monkeypatch.setenv("FSMC_SKILL_ROOTS", "tests/fixtures/skills")
     monkeypatch.setattr(_task_manager_module, "TASK_TIMEOUT_SECONDS", 2.0)
 
     call_count = {"n": 0}

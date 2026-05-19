@@ -122,7 +122,10 @@ def create_task_dirs(tasks_root: Path, task_id: str) -> Path:
 
 
 def stage_skills_in_workspace(
-    workspace: Path, repo_root: Path, skill_entries: list[tuple[str, str]]
+    workspace: Path,
+    repo_root: Path,
+    skill_entries: list[tuple[str, str]],
+    skill_roots: tuple[Path, ...] | None = None,
 ) -> None:
     """Materialise requested skills under ``<workspace>/.claude/skills/<name>/``.
 
@@ -138,13 +141,22 @@ def stage_skills_in_workspace(
     Per-task isolation is preserved (each workspace is fresh; nothing leaks
     across tasks — that's EXEC-02's guarantee in disk form).
 
+    Phase 2 / M-5 of 02-01: ``Skill.path`` is stored relative to the SCAN
+    ROOT that produced the entry (not relative to ``repo_root``). The
+    resolver tries each ``skill_roots`` entry in order — the first one
+    under which ``(root / skill_path_str)`` resolves to an existing dir
+    wins. If ``skill_roots`` is None, the legacy Phase-1 resolution
+    (relative to ``repo_root``) is used.
+
     Args:
         workspace: the per-task workspace (``ClaudeAgentOptions.cwd``).
-        repo_root: the project repository root; ``skill_entries`` paths are
-            interpreted relative to this.
+        repo_root: the project repository root; used as the legacy fallback
+            scan-root when ``skill_roots`` is None.
         skill_entries: ``(skill_name, skill_path)`` tuples sourced from the
-            Catalog. ``skill_path`` is the relative-to-``repo_root`` string
-            stored in ``Skill.path``.
+            Catalog. ``skill_path`` is the ``Skill.path`` string.
+        skill_roots: tuple of absolute scan-roots (``FSMC_SKILL_ROOTS``
+            entries already resolved). When set, each ``skill_path`` is
+            resolved against each root in order until a hit is found.
 
     Notes:
         Symlinks would be lighter but risk breaking sandboxed agent reads
@@ -157,16 +169,33 @@ def stage_skills_in_workspace(
         return
     workspace = Path(workspace)
     repo_root = Path(repo_root)
+    # If no scan-roots supplied (legacy callers / Phase-1 tests that still
+    # pass a Skill.path that is repo_root-relative), fall back to repo_root.
+    candidate_roots: tuple[Path, ...] = (
+        tuple(Path(r) for r in skill_roots) if skill_roots else (repo_root,)
+    )
     target_root = workspace / ".claude" / "skills"
     target_root.mkdir(parents=True, exist_ok=True)
     for skill_name, skill_path_str in skill_entries:
-        source = (repo_root / skill_path_str).resolve()
-        if not source.is_dir():
-            # Skill metadata pointed at a non-existent directory — surface as
-            # a hard error so the caller turns it into STORAGE_ERROR rather
-            # than letting the SDK silently fail to find the skill.
+        # Try every scan-root in order. Phase-2 indexer paths are typically
+        # ``"<skill-name>"`` (one level under the scan-root); Phase-1 legacy
+        # paths were ``"tests/fixtures/skills/<skill-name>"`` relative to
+        # repo_root — both resolve cleanly via this loop.
+        source: Path | None = None
+        attempted: list[Path] = []
+        for root in candidate_roots:
+            candidate = (Path(root) / skill_path_str).resolve()
+            attempted.append(candidate)
+            if candidate.is_dir():
+                source = candidate
+                break
+        if source is None:
+            # No scan-root contained the skill — surface as a hard error so
+            # the caller turns it into STORAGE_ERROR rather than letting the
+            # SDK silently fail to find the skill.
             raise FileNotFoundError(
-                f"Skill {skill_name!r} path does not exist on disk: {source}"
+                f"Skill {skill_name!r} path does not exist on disk; "
+                f"tried: {[str(p) for p in attempted]}"
             )
         dest = target_root / skill_name
         if dest.exists():

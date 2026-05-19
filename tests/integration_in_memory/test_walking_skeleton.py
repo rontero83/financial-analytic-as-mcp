@@ -47,6 +47,10 @@ async def test_walking_skeleton_in_memory(monkeypatch):
     # a real key for in-memory tests (MockAgentRunner bypasses the SDK entirely),
     # so set a sentinel value just to satisfy the env-var-existence check.
     monkeypatch.setenv("ANTHROPIC_API_KEY", "mock-in-memory-test-key")
+    # Phase 2 / D-23: route the indexer at the test-fixtures skill root so
+    # ``fixture-skill-alpha`` appears in the catalog. After D-34 retired the
+    # in-``src/`` seed, this env-var is the canonical Phase-1-style override.
+    monkeypatch.setenv("FSMC_SKILL_ROOTS", "tests/fixtures/skills")
 
     # Deterministic mock — echoes the prompt exactly like fixture-skill-alpha
     # tells the live agent to do (FIXTURE-ECHO::<prompt>::END-FIXTURE).

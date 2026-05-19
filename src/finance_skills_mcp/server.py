@@ -13,22 +13,75 @@ Tool annotations per spec:
 """
 from __future__ import annotations
 
+import collections
 import logging
 import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Mapping
 
 import anyio
 from fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 
 from finance_skills_mcp import agent_runner, task_store
+from finance_skills_mcp.errors import IndexErrorCode
 from finance_skills_mcp.lock_manager import LockManager
-from finance_skills_mcp.skill_catalog import Catalog, seed_catalog
+from finance_skills_mcp.skill_catalog import Catalog
+from finance_skills_mcp.skill_index_store import INDEX_DIR_NAME, persist_index
+from finance_skills_mcp.skill_indexer import IndexResult, index as index_skills
 from finance_skills_mcp.task_manager import TaskManager
 
 log = logging.getLogger("finance_skills_mcp.server")
+
+
+def _parse_skill_roots_env(
+    repo_root: Path,
+    env: Mapping[str, str] | None = None,
+) -> tuple[Path, ...]:
+    """Parse ``FSMC_SKILL_ROOTS`` into a tuple of resolved ``Path`` roots (D-23, D-24).
+
+    The env var is colon-separated (Unix-idiom). Empty / whitespace-only
+    segments are dropped. Relative segments are resolved against ``repo_root``.
+    Absolute segments are used as-is (then resolved). If the env var is unset
+    OR set to the empty string, the default ``"skills"`` is used (D-23 / D-24
+    — the nested ``business-investment-advisor/skills/`` tree stays excluded
+    unless the operator overrides the env var explicitly).
+
+    Note: ``.resolve()`` is used (NOT ``resolve(strict=True)``) — a missing
+    root should surface as ``FileNotFoundError`` from the downstream
+    ``skill_indexer.index()`` call so the operator gets the path-context in
+    the indexer's exception message, not a bare resolver error here.
+
+    Args:
+        repo_root: the repository root that relative roots resolve against.
+        env: a mapping to read from (defaults to ``os.environ``). Tests
+            inject a controlled ``Mapping`` so they never touch the real
+            process environment.
+
+    Returns:
+        A tuple of resolved ``Path`` objects. May be a single-element tuple
+        (the default) or many.
+    """
+    if env is None:
+        env = os.environ
+    raw = env.get("FSMC_SKILL_ROOTS", "")
+    if not raw.strip():
+        raw = "skills"
+
+    roots: list[Path] = []
+    for segment in raw.split(":"):
+        segment = segment.strip()
+        if not segment:
+            continue
+        candidate = Path(segment)
+        if not candidate.is_absolute():
+            candidate = repo_root / candidate
+        roots.append(candidate.resolve())
+    # ``raw`` always contains at least the "skills" default token after the
+    # blank-string guard above, so ``roots`` is guaranteed non-empty.
+    return tuple(roots)
 
 
 def _auth_smoke_test() -> None:
@@ -62,14 +115,29 @@ def _auth_smoke_test() -> None:
 async def app_lifespan(server: FastMCP):
     """Construct singletons; run startup recovery; yield lifespan dict.
 
-    Order matters:
-    1. Auth smoke test → ``sys.exit(2)`` on miss (D-12).
+    Order matters (Phase 2 / D-23, D-32, D-33 wired in):
+
+    1. Auth smoke test — exits non-zero on missing credentials (D-12 / OPS-02).
     2. ``tasks_root.mkdir(exist_ok=True)``.
-    3. ``seed_catalog()``.
-    4. ``LockManager`` + ``await lock_mgr.startup_recovery()`` (D-08).
-    5. ``TaskManager(... agent_runner_module=agent_runner ...)``.
-    6. Yield ``{catalog, lock_mgr, task_mgr}``.
-    7. ``await lock_mgr.shutdown()`` on teardown.
+    3. Parse ``FSMC_SKILL_ROOTS`` (D-23, D-24) via ``_parse_skill_roots_env``.
+    4. ``skill_indexer.index(roots)`` produces a frozen ``IndexResult``.
+    5. ``persist_index(result, repo_root / INDEX_DIR_NAME)`` — runs ALWAYS,
+       even on the fatal paths below, so operators always find a fresh
+       ``.skills-index/errors.json`` after a refusal.
+    6. Duplicate-name fatal: any ``DUPLICATE_NAME`` entry in
+       ``result.errors`` triggers a refusal with BOTH conflicting absolute
+       paths written to stderr (D-32 / INIT-03 / SC3).
+    7. Empty-catalog fatal: an empty ``result.catalog.skills`` triggers a
+       refusal with a per-code ``Counter`` summary written to stderr
+       (D-33 / SC4-inverse).
+    8. ``LockManager`` + ``await lock_mgr.startup_recovery()`` (D-08).
+    9. ``TaskManager(catalog=result.catalog, ...)``.
+    10. Yield ``{catalog, lock_mgr, task_mgr}``.
+    11. ``await lock_mgr.shutdown()`` on teardown.
+
+    Exit codes are intentionally distinct so the three failure modes are
+    distinguishable from the shell: 2 = no auth (D-12), 3 = duplicate skill
+    name (D-32), 4 = no valid skills (D-33).
     """
     _auth_smoke_test()
 
@@ -77,7 +145,53 @@ async def app_lifespan(server: FastMCP):
     tasks_root = repo_root / "tasks"
     tasks_root.mkdir(exist_ok=True)
 
-    catalog: Catalog = seed_catalog()
+    skill_roots = _parse_skill_roots_env(repo_root=repo_root)
+    index_dir = repo_root / INDEX_DIR_NAME
+    index_result: IndexResult = index_skills(skill_roots)
+
+    # Persist BEFORE evaluating the fatal guards so the operator always has
+    # a fresh errors.json on disk to consult after the process exits.
+    persist_index(index_result, index_dir)
+
+    # D-32 — duplicate-name fatal. Evaluated BEFORE D-33 because a duplicate
+    # could pathologically be the only thing keeping the catalog non-empty;
+    # we want the more specific signal to surface first.
+    dup_errors = [
+        err
+        for err in index_result.errors
+        if err.error_code is IndexErrorCode.DUPLICATE_NAME
+    ]
+    if dup_errors:
+        sys.stderr.write(
+            "finance-skills-mcp: DUPLICATE_NAME — refusing to start (D-32)\n"
+            "Conflicting absolute paths:\n"
+        )
+        for err in dup_errors:
+            sys.stderr.write(f"  - {err.path}\n")
+        sys.stderr.write(
+            f"Full report: {index_dir / 'errors.json'}\n"
+        )
+        sys.exit(3)
+
+    # D-33 — empty-catalog fatal. If no skill survived validation, the server
+    # has nothing to serve. Stderr summarises the per-code Counter of errors
+    # so the operator immediately sees the dominant failure mode.
+    if len(index_result.catalog.skills) == 0:
+        code_counts = collections.Counter(
+            err.error_code.value for err in index_result.errors
+        )
+        sys.stderr.write(
+            "finance-skills-mcp: NO VALID SKILLS DISCOVERED — refusing to start (D-33)\n"
+            f"Scanned roots: {[str(r) for r in skill_roots]}\n"
+            f"Error code counts: {dict(code_counts)}\n"
+            f"Full report: {index_dir / 'errors.json'}\n"
+        )
+        sys.exit(4)
+
+    # Both fatal guards passed — bind the indexer's frozen catalog as the
+    # singleton consumed by every MCP tool for the server's lifetime
+    # (INIT-04 / SC5 — list_skills never re-scans disk).
+    catalog: Catalog = index_result.catalog
     lock_mgr = LockManager(tasks_root=tasks_root)
     await lock_mgr.startup_recovery()
 
@@ -88,6 +202,7 @@ async def app_lifespan(server: FastMCP):
         repo_root=repo_root,
         agent_runner_module=agent_runner,
         task_store_module=task_store,
+        skill_roots=skill_roots,
     )
 
     try:

@@ -42,11 +42,24 @@ class TaskManager:
         repo_root: Path,
         agent_runner_module,
         task_store_module,
+        skill_roots: tuple[Path, ...] | None = None,
     ):
         self.catalog = catalog
         self.lock_mgr = lock_mgr
         self.tasks_root = Path(tasks_root)
         self.repo_root = Path(repo_root)
+        # Phase 2 (D-23 / M-5 of 02-01): the indexer stores ``Skill.path``
+        # relative to the SCAN ROOT that produced the entry, not relative
+        # to ``repo_root``. ``stage_skills_in_workspace`` therefore needs
+        # the scan-roots list to resolve a relative ``Skill.path`` into an
+        # absolute on-disk source directory. ``skill_roots`` defaults to
+        # ``(repo_root,)`` for backward compatibility with any caller that
+        # still treats ``Skill.path`` as relative to repo_root.
+        self.skill_roots: tuple[Path, ...] = (
+            tuple(Path(r) for r in skill_roots)
+            if skill_roots
+            else (self.repo_root,)
+        )
         # DI seam: agent_runner and task_store are module references so
         # MockAgentRunner / test doubles can be substituted via mocker.patch.
         self.agent_runner = agent_runner_module
@@ -131,6 +144,7 @@ class TaskManager:
                     task_dir / "workspace",
                     self.repo_root,
                     skill_entries,
+                    self.skill_roots,
                 )
             except (OSError, FileNotFoundError, ValueError) as exc:
                 log.exception("Failed to stage skills in workspace")

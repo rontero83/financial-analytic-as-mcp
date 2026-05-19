@@ -125,6 +125,9 @@ async def test_busy_while_task_in_flight(monkeypatch):
     status ``completed``.
     """
     monkeypatch.setenv("ANTHROPIC_API_KEY", "mock-busy-test-key")
+    # Phase 2 / D-23: route the indexer at the test-fixtures skill root so
+    # ``fixture-skill-alpha`` appears in the catalog (D-34 retired the seed).
+    monkeypatch.setenv("FSMC_SKILL_ROOTS", "tests/fixtures/skills")
 
     # Slow mock — sleeps long enough that Client B's call arrives during A.
     sleep_seconds = 2.0
@@ -239,6 +242,8 @@ async def test_busy_response_has_correct_shape(monkeypatch):
     counterpart to the static contract-test in ``tests/unit/test_contract.py``).
     """
     monkeypatch.setenv("ANTHROPIC_API_KEY", "mock-busy-shape-test-key")
+    # Phase 2 / D-23: route the indexer at the test-fixtures skill root.
+    monkeypatch.setenv("FSMC_SKILL_ROOTS", "tests/fixtures/skills")
 
     async def slow_runner(prompt, skills, cwd):
         await asyncio.sleep(1.5)

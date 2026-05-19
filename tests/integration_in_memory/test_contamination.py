@@ -73,6 +73,9 @@ async def echo_runner(prompt: str, skills, cwd: Path) -> str:
 async def test_two_task_contamination(monkeypatch):
     """Task 2 output MUST NOT contain Task 1's magic value (OPS-04 / EXEC-02)."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "mock-contamination-test-key")
+    # Phase 2 / D-23: route the indexer at the test-fixtures skill root so
+    # ``fixture-skill-alpha`` appears in the catalog (D-34 retired the seed).
+    monkeypatch.setenv("FSMC_SKILL_ROOTS", "tests/fixtures/skills")
 
     # Patch the module-level `run` attribute. TaskManager stores a reference
     # to the agent_runner module (per 01-01 DI seam) and calls

@@ -50,6 +50,9 @@ async def test_status_polls_stay_under_200ms_during_long_task(monkeypatch):
     rationale and BUSY-probe trick.
     """
     monkeypatch.setenv("ANTHROPIC_API_KEY", "mock-eventloop-canonical-key")
+    # Phase 2 / D-23: route the indexer at the test-fixtures skill root so
+    # ``fixture-skill-alpha`` appears in the catalog (D-34 retired the seed).
+    monkeypatch.setenv("FSMC_SKILL_ROOTS", "tests/fixtures/skills")
 
     async def slow_runner(prompt, skills, cwd):
         await asyncio.sleep(2.0)
