@@ -468,6 +468,7 @@ dependencies = [
     { name = "filelock" },
     { name = "pydantic" },
     { name = "python-frontmatter" },
+    { name = "structlog" },
 ]
 
 [package.dev-dependencies]
@@ -487,6 +488,7 @@ requires-dist = [
     { name = "filelock", specifier = ">=3.16,<4" },
     { name = "pydantic", specifier = ">=2.9,<3" },
     { name = "python-frontmatter", specifier = ">=1.1,<2" },
+    { name = "structlog", specifier = ">=24.1.0,<25" },
 ]
 
 [package.metadata.requires-dev]
@@ -1406,6 +1408,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/81/69/17425771797c36cded50b7fe44e850315d039f28b15901ab44839e70b593/starlette-1.0.0.tar.gz", hash = "sha256:6a4beaf1f81bb472fd19ea9b918b50dc3a77a6f2e190a12954b25e6ed5eea149", size = 2655289, upload-time = "2026-03-22T18:29:46.779Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0b/c9/584bc9651441b4ba60cc4d557d8a547b5aff901af35bda3a4ee30c819b82/starlette-1.0.0-py3-none-any.whl", hash = "sha256:d3ec55e0bb321692d275455ddfd3df75fff145d009685eb40dc91fc66b03d38b", size = 72651, upload-time = "2026-03-22T18:29:45.111Z" },
+]
+
+[[package]]
+name = "structlog"
+version = "24.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/78/a3/e811a94ac3853826805253c906faa99219b79951c7d58605e89c79e65768/structlog-24.4.0.tar.gz", hash = "sha256:b27bfecede327a6d2da5fbc96bd859f114ecc398a6389d664f62085ee7ae6fc4", size = 1348634, upload-time = "2024-07-17T12:38:43.483Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bf/65/813fc133609ebcb1299be6a42e5aea99d6344afb35ccb43f67e7daaa3b92/structlog-24.4.0-py3-none-any.whl", hash = "sha256:597f61e80a91cc0749a9fd2a098ed76715a1c8a01f73e336b746504d1aad7610", size = 67180, upload-time = "2024-07-17T12:38:41.043Z" },
 ]
 
 [[package]]
