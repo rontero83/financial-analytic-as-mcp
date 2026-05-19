@@ -17,15 +17,25 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 import anyio
+import structlog
 
 from finance_skills_mcp import errors
 from finance_skills_mcp.ids import _new_task_id
 from finance_skills_mcp.lock_manager import BusyError
+from finance_skills_mcp.logging_config import (
+    bind_task_context,
+    clear_task_context,
+    task_logger,
+)
 
 log = logging.getLogger("finance_skills_mcp.task_manager")
+# Per-D-37: stderr/global structured logger surfaces non-per-task events
+# (and pre-file lifecycle events that are also replayed into the per-task
+# server.jsonl once it exists).
+_slog = structlog.get_logger("finance_skills_mcp.task_manager")
 
 TASK_TIMEOUT_SECONDS = float(os.environ.get("FSM_TASK_TIMEOUT_SECONDS", "600"))  # D-11
 MAX_PROMPT_BYTES = 102_400  # D-23 (specs/create-task/spec.md INVALID_PROMPT)
@@ -95,17 +105,50 @@ class TaskManager:
         task_id = _new_task_id()
         started_at = datetime.now(timezone.utc).isoformat()
         started_perf = anyio.current_time()
+
+        # D-38: bind the three mandatory per-task fields into the
+        # structlog contextvars scope so every subsequent log call carries
+        # them automatically. The clear_task_context() call in the
+        # outer-finally below is the lifecycle counterpart.
+        bind_task_context(
+            task_id=task_id, tool_name="create_task", skill_ids=list(skills)
+        )
+
+        # M-1 (03-PLAN-CHECK): the per-task ``server.jsonl`` does not
+        # exist yet because ``create_task_dirs`` runs in step 3 below.
+        # Events that fire BEFORE step 3 (task_started, task_lock_acquired)
+        # are buffered here and replayed into the file logger once it
+        # opens. Until then, they are also emitted to the global stderr
+        # logger so the start of every task is visible even if dir
+        # creation crashes.
+        early_events: list[tuple[str, dict[str, Any]]] = []
+
+        # task_started — emitted BEFORE try_acquire so a future BUSY-path
+        # instrumentation point (D-42 disk_precheck_refused) inherits the
+        # same buffer pattern.
+        early_events.append(("task_started", {}))
+        _slog.info("task_started")
+
         try:
             await self.lock_mgr.try_acquire(
                 task_id=task_id, started_at_iso=started_at
             )
         except BusyError as e:
+            clear_task_context()
             return errors.busy_error(
                 inflight_task_id=e.inflight_task_id,
                 started_at=e.started_at,
             )
 
-        # 3..N inside try/finally — release no matter what
+        early_events.append(("task_lock_acquired", {}))
+        _slog.info("task_lock_acquired")
+
+        # 3..N inside try/finally — release no matter what.
+        # ``tlog`` (the per-task structlog logger) and ``tlog_fh`` (the
+        # underlying file handle) are bound inside step 3a once the dirs
+        # exist; both are closed/cleared in the outer finally.
+        tlog: Any = None
+        tlog_fh: IO[str] | None = None
         try:
             # 3. Create task dirs (workspace + logs)
             try:
@@ -116,10 +159,39 @@ class TaskManager:
                 )
             except (OSError, ValueError) as exc:
                 log.exception("Failed to create task directory")
+                _slog.error(
+                    "task_failed",
+                    status="failed",
+                    error_class=type(exc).__name__,
+                    error_reason="storage_error_create_dirs",
+                )
                 return errors.validation_error(
                     "STORAGE_ERROR",
                     f"Failed to create task directory: {exc}",
                 )
+
+            # 3a. Open the per-task structlog file logger (D-37). The open
+            # is blocking and hops a worker thread per D-22. An OSError
+            # here downgrades to stderr-only — the task continues to run,
+            # the operator just loses the per-task JSONL file for this run.
+            log_path = task_dir / "logs" / "server.jsonl"
+            try:
+                tlog, tlog_fh = await anyio.to_thread.run_sync(
+                    task_logger, log_path
+                )
+            except OSError:
+                log.exception("Failed to open per-task log file at %s", log_path)
+                tlog = None
+                tlog_fh = None
+
+            # 3b. Replay the pre-file event buffer into the per-task file
+            # logger in original order. Test 3 in 03-01-PLAN.md asserts
+            # this is what makes ``task_started`` + ``task_lock_acquired``
+            # visible in the per-task ``server.jsonl``.
+            if tlog is not None:
+                for evt, kw in early_events:
+                    tlog.info(evt, **kw)
+                early_events.clear()
 
             # 4. Atomic-write input.md + initial status.json
             await anyio.to_thread.run_sync(
@@ -170,6 +242,15 @@ class TaskManager:
             output_text: str
             terminal: str
             error_reason: str | None = None
+            error_class: str | None = None
+
+            # D-39: agent_call_started fires immediately BEFORE wait_for.
+            # The prompt is NEVER logged (T-03-01-04 mitigation) — only
+            # the structural fact that the call is about to begin.
+            agent_call_started = anyio.current_time()
+            if tlog is not None:
+                tlog.info("agent_call_started")
+
             try:
                 output_text = await asyncio.wait_for(
                     self.agent_runner.run(
@@ -178,12 +259,15 @@ class TaskManager:
                     timeout=TASK_TIMEOUT_SECONDS,
                 )
                 terminal = "completed"
+                agent_call_outcome = "returned"
             except asyncio.TimeoutError:
                 output_text = (
                     f"Task exceeded {TASK_TIMEOUT_SECONDS}s timeout and was cancelled.\n"
                 )
                 terminal = "failed"
                 error_reason = "timeout"
+                error_class = "TimeoutError"
+                agent_call_outcome = "timeout"
             except Exception as exc:  # noqa: BLE001 — surface SDK errors as failed
                 log.exception("Agent execution raised")
                 output_text = (
@@ -191,6 +275,21 @@ class TaskManager:
                 )
                 terminal = "failed"
                 error_reason = "agent_error"
+                error_class = type(exc).__name__
+                agent_call_outcome = "raised"
+
+            # D-39: agent_call_returned fires immediately AFTER the agent
+            # call returns, raises, or times out — every path. The
+            # elapsed_ms carries durative cost info for operators.
+            agent_elapsed_ms = int(
+                (anyio.current_time() - agent_call_started) * 1000
+            )
+            if tlog is not None:
+                tlog.info(
+                    "agent_call_returned",
+                    elapsed_ms=agent_elapsed_ms,
+                    status=agent_call_outcome,
+                )
 
             # 6. Atomic-write output.md FIRST (EXEC-04 order — sacred)
             await anyio.to_thread.run_sync(
@@ -216,8 +315,38 @@ class TaskManager:
                 task_dir / "status.json",
                 final_status,
             )
+
+            # D-39: task_completed / task_failed AFTER the terminal
+            # status.json write. Order matters — the on-disk truth
+            # exists before the log line claims it.
+            if tlog is not None:
+                if terminal == "completed":
+                    tlog.info("task_completed", status="completed")
+                else:
+                    tlog.info(
+                        "task_failed",
+                        status="failed",
+                        error_class=error_class or "Unknown",
+                        error_reason=error_reason or "unknown",
+                    )
         finally:
+            # 6. Lock release first (sacred contract from Phase 1) then
+            # D-39 task_lock_released to the per-task logger.
             await self.lock_mgr.release()
+            if tlog is not None:
+                try:
+                    tlog.info("task_lock_released")
+                except Exception:  # noqa: BLE001 — log emission must never re-raise
+                    pass
+            # 7. Close the per-task file handle on a worker thread (D-22).
+            if tlog_fh is not None:
+                try:
+                    await anyio.to_thread.run_sync(tlog_fh.close)
+                except Exception:  # noqa: BLE001 — best effort
+                    pass
+            # 8. Release the per-task contextvars binding so the next
+            # incoming request starts with a clean scope.
+            clear_task_context()
 
         # Success: return the task_id as structured content.
         return {"task_id": task_id}

@@ -1,14 +1,18 @@
-"""Phase 2 integration in-memory test fixtures.
+"""Phase 2 / Phase 3 integration in-memory test fixtures.
 
-The autouse ``_snapshot_repo_skills_index`` fixture handles M-4 (from
-02-PLAN-CHECK.md): the SC1..SC5 acceptance suite drives ``app_lifespan``
-which computes ``repo_root`` from ``__file__`` and writes
-``.skills-index/{catalog,errors}.json`` into the real repo root. Without
-isolation, every integration test would clobber the dev-local
-``.skills-index/`` contents. The fixture snapshots before each test and
-restores after, so the post-suite git status is unchanged from the
-pre-suite git status. ``.skills-index/`` is gitignored regardless, but
-this keeps operator-inspectable state stable across test runs.
+Two autouse fixtures cohabit here:
+
+1. ``_snapshot_repo_skills_index`` (M-4 from 02-PLAN-CHECK.md) — the
+   SC1..SC5 acceptance suite drives ``app_lifespan`` which computes
+   ``repo_root`` from ``__file__`` and writes ``.skills-index/`` into the
+   real repo root. Snapshot+restore preserves operator-inspectable state.
+
+2. ``_ensure_logging_configured`` (M-2 from 03-PLAN-CHECK.md) — in-memory
+   tests bypass ``server.main()`` (the Phase-3 wire site for
+   ``configure_logging()``), so structlog stays unconfigured by default
+   in this tier. This session-scoped autouse fixture calls
+   ``configure_logging()`` exactly once per test session so per-task
+   structlog log writes have a global pipeline to inherit from.
 """
 from __future__ import annotations
 
@@ -17,8 +21,28 @@ from pathlib import Path
 
 import pytest
 
+from finance_skills_mcp.logging_config import configure_logging
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _INDEX_DIR = _REPO_ROOT / ".skills-index"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _ensure_logging_configured():
+    """Wire structlog once per test session (M-2 fix from 03-PLAN-CHECK.md).
+
+    The in-memory FastMCP ``Client(mcp)`` exercises ``app_lifespan`` but
+    NOT ``server.main()`` — and ``main()`` is the canonical wire site for
+    ``configure_logging()`` after Plan 03-01 Task 3 lands. Without this
+    fixture, ``TaskManager.create()``'s global stderr log calls (and
+    therefore Test 7's log-injection regression assertion against the
+    global pipeline) would fall through to a no-op structlog backend.
+
+    ``configure_logging`` is idempotent — the second call from a real
+    server boot during a live integration test is a safe no-op.
+    """
+    configure_logging()
+    yield
 
 
 @pytest.fixture(autouse=True)
