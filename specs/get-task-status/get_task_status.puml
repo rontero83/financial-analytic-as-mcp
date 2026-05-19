@@ -1,5 +1,5 @@
 @startuml get_task_status
-!include _common.puml
+!include ../_common.puml
 
 note over F: No lock interaction; no agent SDK call;\n<200ms event-loop hygiene (tested in Phase 1)
 note over TS: status in {working, completed, failed} (C-01)

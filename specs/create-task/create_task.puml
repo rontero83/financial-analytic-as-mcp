@@ -1,5 +1,5 @@
 @startuml create_task
-!include _common.puml
+!include ../_common.puml
 
 C  -> F   : 1. tools/call create_task({prompt, skills})
 F  -> TM  : 2. create(prompt, skills)

@@ -1,5 +1,5 @@
 @startuml get_task_result
-!include _common.puml
+!include ../_common.puml
 
 note over F: No outputSchema declared — Claude Code bug #25081 (D-11)
 

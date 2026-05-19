@@ -1,5 +1,5 @@
 @startuml list_skills
-!include _common.puml
+!include ../_common.puml
 
 note over F: readOnlyHint: true
 note over CAT: Frozen in-memory; no disk I/O at call time

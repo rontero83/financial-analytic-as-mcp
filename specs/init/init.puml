@@ -1,5 +1,5 @@
 @startuml init
-!include _common.puml
+!include ../_common.puml
 
 ' SkillIndexer is a Phase 2 deliverable; shown here for contract completeness (SPEC-02).
 participant SkillIndexer as SI
