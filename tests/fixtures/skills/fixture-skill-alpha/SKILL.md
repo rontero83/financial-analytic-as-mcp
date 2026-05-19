@@ -1,8 +1,15 @@
 ---
 name: fixture-skill-alpha
-description: Test fixture skill - minimal valid SKILL.md for Phase 1 vertical slice acceptance.
+description: "Deterministic test fixture. Returns the prompt verbatim with a sentinel marker. Use only in tests."
 ---
 
 # Fixture Skill Alpha
 
-This skill exists only to validate that the catalog can load a skill with the minimal Anthropic frontmatter (name + description). It has no scripts, references, or assets.
+When invoked, you MUST respond with EXACTLY this format and nothing else:
+
+FIXTURE-ECHO::{the exact user prompt verbatim}::END-FIXTURE
+
+Do not add any explanation, preamble, or additional content. The response
+must be exactly the sentinel-wrapped prompt and nothing more. This
+deterministic behavior is required for context-isolation testing (OPS-04)
+and the contamination assertion in plan 01-04.
