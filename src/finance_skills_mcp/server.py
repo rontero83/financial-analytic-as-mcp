@@ -159,7 +159,28 @@ async def app_lifespan(server: FastMCP):
     """
     _auth_smoke_test()
 
-    repo_root = Path(__file__).resolve().parents[2]
+    # WR-07: repo_root derivation MUST work for both editable installs
+    # (``<root>/src/finance_skills_mcp/server.py`` — Path(__file__).parents[2]
+    # IS the project root) AND wheel installs (``site-packages/finance_skills_mcp/
+    # server.py`` — parents[2] is unrelated to the operator's project tree).
+    # Env-var override takes precedence; the derivation is the fallback and
+    # is sanity-checked by asserting ``<repo_root>/src/finance_skills_mcp/``
+    # exists. If neither path identifies a usable root, exit 2 with an
+    # actionable stderr message — DO NOT silently mount /usr/lib as repo_root.
+    repo_root_env = os.environ.get("FSMC_REPO_ROOT")
+    if repo_root_env:
+        repo_root = Path(repo_root_env).resolve()
+    else:
+        derived = Path(__file__).resolve().parents[2]
+        if (derived / "src" / "finance_skills_mcp").is_dir():
+            repo_root = derived
+        else:
+            sys.stderr.write(
+                f"finance-skills-mcp: cannot locate repo root from "
+                f"{__file__!r}; set FSMC_REPO_ROOT explicitly to the "
+                f"directory that contains skills/ and tasks/\n"
+            )
+            sys.exit(2)
     tasks_root = repo_root / "tasks"
     # D-22 / EXEC-07: every blocking I/O call inside an async function
     # (including this lifespan) must hop a worker thread so the asyncio
