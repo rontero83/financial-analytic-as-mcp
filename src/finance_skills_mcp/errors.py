@@ -1,5 +1,10 @@
 """Structured-error wire shape helpers (D-23, D-24).
 
+Phase 2 (D-31) appends ``IndexErrorCode`` — typed codes the indexer emits
+into ``.skills-index/errors.json``. The enum lives here because this is
+already the typed-error module for the project; the indexer imports
+``IndexErrorCode`` from ``finance_skills_mcp.errors``.
+
 §A4 of 01-01-SUMMARY.md captures the empirical pivot: FastMCP 3.3.1's
 ``ToolResult.to_mcp_result()`` produces a ``CallToolResult`` only when ``meta``
 is set, and that helper does NOT set ``isError``. Raising ``ToolError(msg)``
@@ -11,10 +16,43 @@ This module owns that subclass and a tiny factory for each error code in
 """
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any
 
 from fastmcp.tools.tool import ToolResult
 from mcp.types import CallToolResult, TextContent
+
+
+class IndexErrorCode(str, Enum):
+    """Typed error codes emitted by ``skill_indexer.index()`` (D-31).
+
+    Members are string-valued so ``json.dumps(IndexErrorCode.MISSING_NAME)``
+    yields the bare token ``"MISSING_NAME"`` — the on-disk
+    ``.skills-index/errors.json`` therefore uses bare strings, not the Python
+    repr.
+
+    The 8 D-31 codes plus ``INVALID_PATH`` (Phase 2 02-PLAN-CHECK M-2 fix —
+    distinguishes a symlink-escape failure from a name-format failure so the
+    operator's ``errors.json`` consumers can branch cleanly).
+
+    All members EXCEPT ``UNKNOWN_FIELD`` are hard errors — the offending
+    skill is skipped. ``UNKNOWN_FIELD`` is warning severity — the skill is
+    still indexed (D-28).
+    """
+
+    MISSING_NAME = "MISSING_NAME"
+    MISSING_DESCRIPTION = "MISSING_DESCRIPTION"
+    INVALID_NAME = "INVALID_NAME"
+    INVALID_YAML = "INVALID_YAML"
+    EMPTY_FILE = "EMPTY_FILE"
+    ENCODING_ERROR = "ENCODING_ERROR"
+    DUPLICATE_NAME = "DUPLICATE_NAME"
+    UNKNOWN_FIELD = "UNKNOWN_FIELD"
+    INVALID_PATH = "INVALID_PATH"
+
+    def is_warning(self) -> bool:
+        """True only for ``UNKNOWN_FIELD`` (D-28 — warning severity)."""
+        return self is IndexErrorCode.UNKNOWN_FIELD
 
 
 class ErrorToolResult(ToolResult):
