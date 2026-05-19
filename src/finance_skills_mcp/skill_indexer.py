@@ -110,7 +110,18 @@ class IndexResult:
 
 
 def _validate_name(name: Any) -> bool:
-    """True iff ``name`` matches D-29 regex AND 2 <= len(name) <= 64."""
+    """True iff ``name`` matches D-29 regex AND 2 <= len(name) <= 64.
+
+    WR-09 / defense-in-depth: the current ``NAME_REGEX`` pattern
+    ``^[a-z0-9][a-z0-9-]*[a-z0-9]$`` already enforces the lower bound
+    (a matching string requires BOTH a leading and trailing alnum, so
+    ``len(name) >= 2`` is implicit). The explicit ``2 <= len(name)``
+    half of the bound check is therefore redundant TODAY but kept
+    intentionally so this function stays correct if anyone later
+    loosens the regex to allow single-char names (e.g.,
+    ``^[a-z0-9][a-z0-9-]*$``). The ``<= 64`` upper bound IS
+    load-bearing — the regex's middle ``[a-z0-9-]*`` is unbounded.
+    """
     return (
         isinstance(name, str)
         and 2 <= len(name) <= 64
