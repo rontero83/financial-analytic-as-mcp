@@ -330,9 +330,48 @@ def test_name_regex_constant_is_exposed():
 # Missing-root sanity (config bug, not per-skill error)
 # ---------------------------------------------------------------------------
 
-def test_missing_root_raises_loud(tmp_path: Path):
-    """A non-existent root raises FileNotFoundError — it's a config bug, not
-    a per-skill IndexError."""
+def test_missing_root_emits_missing_root_and_continues(tmp_path: Path):
+    """A non-existent root emits MISSING_ROOT and does NOT abort the scan.
+
+    Phase-2 code-review fix WR-03: the previous "FileNotFoundError out of
+    index()" contract discarded partial results from earlier roots and
+    gave the operator no visibility into which configured root was the
+    offender. The new contract: report once per missing root, keep going.
+    """
+    from finance_skills_mcp.errors import IndexErrorCode
+
     missing = tmp_path / "does-not-exist"
-    with pytest.raises(FileNotFoundError):
-        index((missing,))
+    good = tmp_path / "good_root"
+    good.mkdir()
+    _make_skill_dir(good, "alpha")
+
+    r = index((missing, good))
+
+    # Missing root reported, exactly once.
+    missing_errs = [
+        e for e in r.errors if e.error_code is IndexErrorCode.MISSING_ROOT
+    ]
+    assert len(missing_errs) == 1
+    assert missing_errs[0].path == str(missing)
+
+    # The valid sibling root was still scanned and its skill indexed.
+    names = {s.name for s in r.catalog.skills}
+    assert "alpha" in names
+
+
+def test_only_missing_roots_yields_empty_catalog(tmp_path: Path):
+    """If EVERY configured root is missing, catalog is empty but errors
+    is populated — the empty-catalog D-33 guard at the lifespan layer
+    is what turns this into a fatal exit."""
+    from finance_skills_mcp.errors import IndexErrorCode
+
+    missing_a = tmp_path / "absent-a"
+    missing_b = tmp_path / "absent-b"
+    r = index((missing_a, missing_b))
+
+    assert r.catalog.skills == ()
+    missing_errs = [
+        e for e in r.errors if e.error_code is IndexErrorCode.MISSING_ROOT
+    ]
+    assert len(missing_errs) == 2
+    assert {e.path for e in missing_errs} == {str(missing_a), str(missing_b)}

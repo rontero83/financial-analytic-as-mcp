@@ -361,8 +361,14 @@ def index(roots: tuple[Path, ...]) -> IndexResult:
     """Walk every ``root`` in order, return the frozen Catalog + collected errors.
 
     Pre-conditions:
-        Every root must already exist on disk. A missing root raises
-        ``FileNotFoundError`` (config bug — not a per-skill error).
+        Roots are expected to exist on disk. Phase-2 code-review fix WR-03
+        relaxes the previous "missing root raises FileNotFoundError"
+        contract: a missing root now emits a single ``MISSING_ROOT`` entry
+        per offending root into ``errors`` and the remaining roots are
+        still scanned. Operators thus see ``errors.json`` populated for the
+        roots that DID resolve, plus a clean ``MISSING_ROOT`` row pointing
+        at the misconfigured entry — instead of zero visibility into the
+        offender and zero data for the OTHER roots that worked.
 
     Returns:
         ``IndexResult(catalog=Catalog(skills=(...sorted by name asc...)),
@@ -375,13 +381,31 @@ def index(roots: tuple[Path, ...]) -> IndexResult:
         - Symlinks escaping the root surface as ``INVALID_PATH`` — M-2.
         - Duplicate names across roots emit DUPLICATE_NAME for BOTH paths —
           server-fatal handling is in plan 02-03.
+        - Missing roots emit ``MISSING_ROOT`` and DO NOT abort — WR-03.
     """
     accumulator: dict[str, tuple[Skill, Path]] = {}
     errors: list[IndexError] = []
 
     for root in roots:
-        # FileNotFoundError surfaces naturally from resolve(strict=True).
-        _scan_one_root(root, accumulator, errors)
+        try:
+            _scan_one_root(root, accumulator, errors)
+        except FileNotFoundError:
+            # WR-03: a single missing root used to take down the whole
+            # scan, discarding partial results from earlier roots. Now we
+            # report it as a per-root MISSING_ROOT error and continue —
+            # the empty-catalog D-33 guard at the lifespan layer still
+            # catches the "no valid skills anywhere" case.
+            errors.append(
+                IndexError(
+                    path=str(root),
+                    error_code=IndexErrorCode.MISSING_ROOT,
+                    message=f"scan root does not exist: {root}",
+                    hint=(
+                        "check FSMC_SKILL_ROOTS for typos and verify the "
+                        "directory exists; remove the entry or fix the path"
+                    ),
+                )
+            )
 
     skills_sorted = tuple(
         skill
