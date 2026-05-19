@@ -11,6 +11,14 @@ cache the result and that calling it has no side effects. This is the canonical 
 by which a client discovers what skills it can pass to `create_task`; no skill name is ever
 hardcoded on either side of the wire.
 
+## Diagram
+
+The sequence diagram for this capability lives next to this spec — they describe the same
+contract from two angles and MUST be updated in the same commit.
+
+- Rendered: [`list_skills.svg`](list_skills.svg)
+- Source:   [`list_skills.puml`](list_skills.puml)
+
 ## Requirements
 
 ### Requirement: Catalog enumeration

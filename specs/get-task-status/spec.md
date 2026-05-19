@@ -12,6 +12,14 @@ deliberately aligned with MCP 2025-11-25's Tasks experimental spec (research cor
 C-01); see `.planning/PROJECT.md` and the DECISION-LOG for the C-01 history. Only the three
 enum values declared in `## Schemas` are valid; any other value is a contract violation.
 
+## Diagram
+
+The sequence diagram for this capability lives next to this spec — they describe the same
+contract from two angles and MUST be updated in the same commit.
+
+- Rendered: [`get_task_status.svg`](get_task_status.svg)
+- Source:   [`get_task_status.puml`](get_task_status.puml)
+
 ## Requirements
 
 ### Requirement: Status returns canonical vocabulary

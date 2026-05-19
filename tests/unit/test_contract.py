@@ -1,12 +1,28 @@
 """Contract test (SPEC-09). The single most load-bearing CI guard:
-fails if any OpenSpec example diverges from its declared JSON Schema,
-OR if any spec is missing required Schemas/Examples sections, OR if
+fails if any example diverges from its declared JSON Schema, OR if any
+*wire-level* spec is missing required Schemas/Examples sections, OR if
 the spec.md format drifts from the parser's expectations.
 
-Per PLAN 00-02 DECISION-LOG: Option A confirmed - schemas + examples
+After the 2026-05-19 specs-unify migration, specs live at
+``specs/<capability>/spec.md`` (no `openspec/` wrapper, no separate
+`docs/diagrams/`). The OpenSpec CLI tool is no longer used; this test
+also enforces the *format* checks the CLI used to provide:
+
+  - every spec has a `## Purpose` H2
+  - every spec has a `## Requirements` H2
+  - every spec has at least one ``### Requirement:`` H3 under it
+  - every requirement has at least one ``#### Scenario:`` H4 (4 hashes)
+    — three hashes silently failed under OpenSpec; we catch them here.
+
+Some specs (currently `init`) are Scenario-only: they describe server
+behavior with no wire-level request/response, and therefore declare NO
+``## Schemas`` / ``## Examples`` sections. The schema/example validation
+loop SKIPS those specs cleanly; the format check applies to all specs.
+
+Per PLAN 00-02 DECISION-LOG: Option A confirmed — schemas + examples
 live as fenced ```json blocks inside ``## Schemas`` / ``## Examples`` H2
-sections of each ``openspec/specs/<capability>/spec.md`` file. No sidecar
-JSON files exist; this test parses the markdown directly.
+sections of each wire-level ``specs/<capability>/spec.md`` file. No
+sidecar JSON files exist; this test parses the markdown directly.
 """
 from __future__ import annotations
 
@@ -20,7 +36,11 @@ import pytest
 
 # REPO_ROOT works whether pytest is invoked from repo root or from tests/
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SPECS_DIR = REPO_ROOT / "openspec" / "specs"
+SPECS_DIR = REPO_ROOT / "specs"
+
+# Scenario-only specs (no wire-level request/response, so no Schemas/Examples).
+# These specs participate in the *format* check but skip the *schema/example* check.
+_SCENARIO_ONLY_SPECS = {"init"}
 
 
 # Match an H3 heading followed by a ```json fenced code block.
@@ -126,6 +146,12 @@ def test_examples_validate_against_schemas(spec_path: Path) -> None:
     Each spec.md => N examples => N validation pairs. A single failure
     pinpoints the offending capability and example.
     """
+    # Scenario-only specs (e.g. `init`) have no wire-level I/O and intentionally
+    # declare no Schemas / Examples. Skip the JSON-validation block for them —
+    # they're still covered by the format test below.
+    if spec_path.parent.name in _SCENARIO_ONLY_SPECS:
+        pytest.skip(f"{spec_path.parent.name} is a scenario-only spec (no wire I/O)")
+
     parsed = _parse_spec(spec_path)
     schemas = parsed["schemas"]
     examples = parsed["examples"]
@@ -230,3 +256,54 @@ def test_parser_handles_clean_markdown(tmp_path: Path) -> None:
     assert "Happy" in parsed["examples"]
     assert parsed["examples"]["Happy"]["request"] == {"x": 1}
     assert parsed["examples"]["Happy"]["response"] == {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Format checks (replaces the dropped OpenSpec CLI `validate --all` gate)
+# ---------------------------------------------------------------------------
+#
+# These checks used to be enforced by `npx @fission-ai/openspec validate --all`.
+# After the 2026-05-19 specs-unify migration we dropped the OpenSpec CLI;
+# the format invariants it enforced are now reproduced here so the same
+# guarantees ship in CI via the existing `contract-tests` job.
+
+# Requirement headings use exactly 3 hashes: "### Requirement:"
+_REQUIREMENT_HEADING = re.compile(r"^###\s+Requirement:", re.MULTILINE)
+# Scenario headings use exactly 4 hashes: "#### Scenario:"
+# 3-hash scenarios are a known silent-fail pattern.
+_SCENARIO_4HASH = re.compile(r"^####\s+Scenario:", re.MULTILINE)
+_SCENARIO_3HASH = re.compile(r"^###\s+Scenario:", re.MULTILINE)
+
+
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    "spec_path",
+    _collect_specs(),
+    ids=lambda p: p.parent.name,
+)
+def test_spec_format(spec_path: Path) -> None:
+    """Format invariants every spec.md must satisfy."""
+    text = spec_path.read_text(encoding="utf-8")
+
+    # Required H2 sections that every spec has.
+    assert re.search(r"^##\s+Purpose\s*$", text, re.MULTILINE), (
+        f"{spec_path}: missing required '## Purpose' section"
+    )
+    assert re.search(r"^##\s+Requirements\s*$", text, re.MULTILINE), (
+        f"{spec_path}: missing required '## Requirements' section"
+    )
+    # Every spec must declare at least one Requirement.
+    assert _REQUIREMENT_HEADING.search(text), (
+        f"{spec_path}: '## Requirements' section has no '### Requirement:' entries"
+    )
+    # Every spec must have at least one Scenario (4-hash form).
+    assert _SCENARIO_4HASH.search(text), (
+        f"{spec_path}: no '#### Scenario:' (4-hash) entries found"
+    )
+    # 3-hash scenarios are a silent-fail trap inherited from OpenSpec —
+    # explicitly reject them so renamed/copy-pasted scenarios get caught.
+    bad = _SCENARIO_3HASH.findall(text)
+    assert not bad, (
+        f"{spec_path}: found 3-hash '### Scenario:' headings — must be "
+        f"'#### Scenario:' (4 hashes). Offending count: {len(bad)}"
+    )

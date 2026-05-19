@@ -17,6 +17,16 @@ from the MCP 2025-11-25 Tasks experimental spec (research correction; codified i
 > forbidden field name is the camel-case structured-output declaration referenced in MCP
 > issue 25081.
 
+## Diagram
+
+The sequence diagram for this capability lives next to this spec — they describe the same
+contract from two angles and MUST be updated in the same commit. The diagram visualises the
+non-terminal-state error branch explicitly (D-14): calling `get_task_result` on a `working`
+task returns `isError: true`, it does NOT block.
+
+- Rendered: [`get_task_result.svg`](get_task_result.svg)
+- Source:   [`get_task_result.puml`](get_task_result.puml)
+
 ## Requirements
 
 ### Requirement: Terminal-state result return

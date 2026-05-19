@@ -13,6 +13,15 @@ subsequent `create_task` call returns a structured `BUSY` error carrying the in-
 most distinctive feature and is encoded both as a normative requirement scenario (immediately
 adjacent to the happy path per D-13) and as a JSON Schema under `## Schemas`.
 
+## Diagram
+
+The sequence diagram for this capability lives next to this spec — they describe the same
+contract from two angles and MUST be updated in the same commit. The diagram visualises the
+happy-path / BUSY alt-branch (D-13) immediately adjacent to each other.
+
+- Rendered: [`create_task.svg`](create_task.svg)
+- Source:   [`create_task.puml`](create_task.puml)
+
 ## Requirements
 
 ### Requirement: Synchronous task acceptance
