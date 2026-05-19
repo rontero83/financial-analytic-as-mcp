@@ -1,0 +1,35 @@
+[project]
+name = "finance-skills-mcp"
+version = "0.1.0"
+description = "MCP server wrapping markdown-defined finance skills via Claude Agent SDK"
+authors = [
+    { name = "Stas", email = "rontero@gmail.com" }
+]
+requires-python = ">=3.10"
+# Phase 0: runtime deps empty per D-18.
+# Phase 1 adds: fastmcp, claude-agent-sdk, filelock, structlog, anyio.
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+markers = [
+    "contract: validates MCP responses against OpenSpec schemas",
+    "live: hits the real Claude Agent SDK; nightly only",
+    "in_memory: uses FastMCP in-memory Client (Phase 1+)",
+]
+
+[dependency-groups]
+dev = [
+    "anyio[pytest]>=4.6",
+    "jsonschema>=4.23",
+    "pydantic>=2.9",
+    "pytest>=8.0",
+    "pytest-mock>=3.14",
+    "python-frontmatter>=1.1",
+]

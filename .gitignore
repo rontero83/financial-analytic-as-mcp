@@ -1,0 +1,23 @@
+# Python / packaging
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# uv / virtual env
+.venv/
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Editor / OS noise
+.DS_Store
+*.swp
