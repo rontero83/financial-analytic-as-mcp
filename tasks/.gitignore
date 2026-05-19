@@ -1,0 +1,3 @@
+# Task output directories created by create_task — never commit these.
+*
+!.gitignore

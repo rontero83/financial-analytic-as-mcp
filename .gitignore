@@ -29,7 +29,10 @@ build/
 # Phase 1 runtime: task directories created by create_task at server runtime.
 # Each task gets tasks/<task_id>/ with input.md, status.json, output.md,
 # workspace/, logs/. Server-side runtime state — never committed.
-/tasks/
+# Negation keeps tasks/.gitignore tracked so the directory exists in the repo
+# (its own .gitignore excludes everything inside).
+/tasks/*
+!/tasks/.gitignore
 
 # Phase 2 runtime: dynamic catalog persistence (not present in Phase 1).
 /.skills-index/
