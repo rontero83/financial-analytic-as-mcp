@@ -76,9 +76,18 @@ class IndexError:  # noqa: A001 — module-scoped name; not the builtin's namesp
     hint: str | None = None
 
     def to_json_dict(self) -> dict[str, Any]:
+        # WR-05: surface the warning-vs-error distinction in errors.json so
+        # operators don't have to cross-reference the source to know which
+        # entries skipped the skill (severity="error") vs which left the
+        # skill indexed (severity="warning"). Uses the existing
+        # IndexErrorCode.is_warning() predicate to avoid duplicating the
+        # mapping. Schema-additive: existing consumers that ignore unknown
+        # fields keep working; tests pinning the exact dict shape were
+        # updated alongside this change.
         out: dict[str, Any] = {
             "path": self.path,
             "error_code": self.error_code.value,
+            "severity": "warning" if self.error_code.is_warning() else "error",
             "message": self.message,
         }
         if self.line is not None:

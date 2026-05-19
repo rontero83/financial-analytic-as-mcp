@@ -131,30 +131,37 @@ def test_non_empty_errors_writes_d31_shape(tmp_path: Path) -> None:
     assert isinstance(payload, list), "errors.json must be a flat JSON array (D-31)"
     assert len(payload) == 3
 
-    # Each entry must carry the three required keys.
+    # Each entry must carry the four required keys (WR-05 adds severity).
     for entry in payload:
-        assert set(entry.keys()) >= {"path", "error_code", "message"}
+        assert set(entry.keys()) >= {"path", "error_code", "severity", "message"}
 
-    # First entry: full shape with line + hint.
+    # First entry: full shape with line + hint. WR-05: severity="error"
+    # because INVALID_YAML is not in the is_warning() set.
     assert payload[0] == {
         "path": "/abs/yaml-bad/SKILL.md",
         "error_code": "INVALID_YAML",
+        "severity": "error",
         "message": "msg for yaml-bad",
         "line": 7,
         "hint": "fix yaml",
     }
 
     # Second entry: line / hint were None — keys MUST be absent (not null).
+    # WR-05: severity="error" because MISSING_NAME is a hard error.
     assert payload[1] == {
         "path": "/abs/name-bad/SKILL.md",
         "error_code": "MISSING_NAME",
+        "severity": "error",
         "message": "msg for name-bad",
     }
     assert "line" not in payload[1]
     assert "hint" not in payload[1]
 
     # Third entry: warning-severity UNKNOWN_FIELD with both optional fields.
+    # WR-05: severity="warning" — this is the only code is_warning() returns
+    # True for today.
     assert payload[2]["error_code"] == "UNKNOWN_FIELD"
+    assert payload[2]["severity"] == "warning"
     assert payload[2]["line"] == 3
     assert payload[2]["hint"] == "remove weird key"
 
@@ -276,11 +283,14 @@ def test_atomic_rename_no_torn_reads(
         "atomic-rename invariant violated: errors.json was modified by a "
         "failed write (D-25)"
     )
-    # And it still parses as valid JSON — never a partial read.
+    # And it still parses as valid JSON — never a partial read. WR-05
+    # added the severity field — MISSING_NAME is a hard error so the
+    # round-tripped baseline has severity="error".
     assert json.loads(after) == [
         {
             "path": "/abs/old-err/SKILL.md",
             "error_code": "MISSING_NAME",
+            "severity": "error",
             "message": "msg for old-err",
         }
     ]

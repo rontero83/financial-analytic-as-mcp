@@ -60,6 +60,14 @@ INDEX_DIR_NAME: str = ".skills-index"
 def persist_index(result: IndexResult, index_dir: Path) -> None:
     """Atomically write ``catalog.json`` and ``errors.json`` into ``index_dir``.
 
+    This function is **synchronous** and performs blocking I/O (mkdir plus
+    two ``atomic_write_json`` calls — each of which does ``mkstemp``,
+    ``fdopen``, ``write``, ``fsync``, ``os.replace``, and a directory
+    ``fsync``). **Callers from async contexts MUST wrap this call in
+    ``anyio.to_thread.run_sync(persist_index, result, index_dir)``** per
+    D-22 / EXEC-07 — never call it directly from inside an
+    ``async def`` body. The lifespan in ``server.py`` follows this rule.
+
     Both files are overwritten unconditionally (D-26). ``errors.json`` is
     written even when ``result.errors`` is empty — as the literal ``[]`` JSON
     array (D-27). Writes are performed via ``task_store.atomic_write_json``
