@@ -18,7 +18,11 @@ spec:
 	npx --yes @fission-ai/openspec@1.3.1 validate --all
 
 diagrams:
-	docker run --rm --user "$$(id -u):$$(id -g)" -v "$(PWD):/data" $(PLANTUML_TAG) -tsvg /data/$(DIAGRAMS_DIR)/*.puml
+	# _JAVA_OPTIONS=-Duser.home=/tmp prevents the JVM from resolving user.home to
+	# "?" when the --user UID has no /etc/passwd entry inside the container, which
+	# would otherwise create a `?/.java/fonts/` cache dir at $PWD (Pitfall 6
+	# sibling — keeps `git diff --exit-code` clean in CI).
+	docker run --rm --user "$$(id -u):$$(id -g)" -e _JAVA_OPTIONS="-Duser.home=/tmp" -v "$(PWD):/data" $(PLANTUML_TAG) -tsvg /data/$(DIAGRAMS_DIR)/*.puml
 
 test:
 	uv run pytest -m "not live"

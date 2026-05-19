@@ -21,3 +21,7 @@ build/
 # Editor / OS noise
 .DS_Store
 *.swp
+
+# PlantUML cache dir written by Docker container when HOME is unresolved
+# (defense-in-depth — the `make diagrams` target sets -e HOME=/tmp to prevent this)
+/?/
