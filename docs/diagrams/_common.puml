@@ -1,0 +1,22 @@
+' docs/diagrams/_common.puml
+' Rendered with: plantuml/plantuml:1.2026.3 (PlantUML 1.2026.3 / 208af3a, 2026-05-08)
+' Shared participant declarations and styling. Every diagram MUST !include this file (D-12).
+' NO @startuml/@enduml in this file — it is raw preprocessor input.
+
+!define ACTORCOLOR #4A90E2
+!define LOCKCOLOR  #E27D60
+
+skinparam sequenceMessageAlign center
+skinparam sequenceArrowThickness 2
+skinparam participantBorderColor #333
+skinparam participantBackgroundColor #FAFAFA
+skinparam sequenceLifeLineBorderColor #888
+
+' Participant declarations (every diagram includes these so naming stays consistent — D-12)
+participant Client as C
+participant "FastMCP\n@mcp.tool" as F
+participant TaskManager as TM
+participant LockManager as LM
+participant TaskStore as TS
+participant AgentRunner as AR
+participant Catalog as CAT

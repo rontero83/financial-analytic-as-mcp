@@ -3,11 +3,10 @@
 # If you bump a tool version here, bump it in ci.yml too.
 
 DIAGRAMS_DIR   := docs/diagrams
-# Pin PlantUML image tag explicitly (Pitfall 2). The placeholder PLANTUML_TAG below
-# is set to :latest until PLAN 03 Task 0 runs `docker pull` and writes back the
-# resolved tag (e.g., plantuml/plantuml:1.2026.5). DO NOT leave :latest in any
-# subsequent commit — PLAN 03 enforces the pin.
-PLANTUML_TAG   := plantuml/plantuml:latest
+# PlantUML tag PINNED per Pitfall 2 — :latest is non-deterministic across versions.
+# If you bump this, re-render all SVGs (make diagrams) and commit, or CI diagrams-fresh fails.
+# Resolved 2026-05-19: plantuml/plantuml:1.2026.3 (digest sha256:75321ef9b2b843196aa497b4cb2b5d78fec47f29d77af7b27f04b8d31d3060ae)
+PLANTUML_TAG   := plantuml/plantuml:1.2026.3
 OPENSPEC_PIN   := @fission-ai/openspec@1.3.1
 
 .PHONY: all spec diagrams test test-contract test-live clean help
