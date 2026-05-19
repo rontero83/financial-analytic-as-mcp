@@ -1,9 +1,15 @@
-"""FastMCP server: lifespan construction of singletons + 4 @mcp.tool stubs.
+"""FastMCP server: lifespan singletons + 4 ``@mcp.tool`` handlers.
 
-Task 2a of plan 01-01 lands the **lifespan shell + tool stubs only** — the
-four ``@mcp.tool`` bodies raise ``NotImplementedError`` and Task 2b wires
-them to the ``TaskManager``. The auth smoke test (D-12 / OPS-02) is fully
-implemented here and runs FIRST inside the lifespan, before any singleton.
+Tool handlers route into ``TaskManager``; all blocking I/O lives behind the
+``anyio.to_thread.run_sync`` wrappers inside ``TaskManager`` and
+``LockManager`` (D-22 / EXEC-07). The auth smoke test (D-12 / OPS-02) runs
+FIRST in the lifespan, before any singleton.
+
+Tool annotations per spec:
+- ``list_skills`` — readOnlyHint=True, openWorldHint=False
+- ``create_task`` — destructiveHint=False, openWorldHint=True
+- ``get_task_status`` — readOnlyHint=True, openWorldHint=False
+- ``get_task_result`` — readOnlyHint=True, openWorldHint=False
 """
 from __future__ import annotations
 
@@ -14,7 +20,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import anyio
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
+from mcp.types import ToolAnnotations
 
 from finance_skills_mcp import agent_runner, task_store
 from finance_skills_mcp.lock_manager import LockManager
@@ -25,14 +32,12 @@ log = logging.getLogger("finance_skills_mcp.server")
 
 
 def _auth_smoke_test() -> None:
-    """OPS-02 / D-12: verify Anthropic credentials are present BEFORE registering tools.
+    """OPS-02 / D-12: verify Anthropic credentials are present before tool registration.
 
-    Reads ``ANTHROPIC_API_KEY`` and ``CLAUDE_CODE_OAUTH_TOKEN`` from the
-    environment. If neither is set, write a multi-line error to ``stderr``
-    naming the methods tried and exit with code 2. Does **NOT** make a real
-    API call (cost + latency + breaks offline ``--help``); the first task's
-    SDK invocation surfaces invalid keys via ``agent_runner`` and
-    ``status.json``.
+    Reads ``ANTHROPIC_API_KEY`` and ``CLAUDE_CODE_OAUTH_TOKEN``. If neither is
+    set, writes a multi-line error to stderr and exits with code 2. Does NOT
+    make a real API call — the first task's SDK invocation surfaces invalid
+    keys via ``agent_runner`` and ``status.json``.
     """
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     oauth = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
@@ -55,17 +60,18 @@ def _auth_smoke_test() -> None:
 
 @asynccontextmanager
 async def app_lifespan(server: FastMCP):
-    """Server lifespan (D-12, D-13, D-25):
+    """Construct singletons; run startup recovery; yield lifespan dict.
 
-    1. Auth smoke test → ``sys.exit(2)`` if credentials missing.
+    Order matters:
+    1. Auth smoke test → ``sys.exit(2)`` on miss (D-12).
     2. ``tasks_root.mkdir(exist_ok=True)``.
-    3. ``seed_catalog()`` → frozen one-entry catalog (D-14).
-    4. ``LockManager(...)`` + ``await lock_mgr.startup_recovery()``.
-    5. ``TaskManager(...)``.
-    6. Yield ``{catalog, lock_mgr, task_mgr}`` for tool handlers.
+    3. ``seed_catalog()``.
+    4. ``LockManager`` + ``await lock_mgr.startup_recovery()`` (D-08).
+    5. ``TaskManager(... agent_runner_module=agent_runner ...)``.
+    6. Yield ``{catalog, lock_mgr, task_mgr}``.
     7. ``await lock_mgr.shutdown()`` on teardown.
     """
-    _auth_smoke_test()  # fail-fast BEFORE constructing singletons
+    _auth_smoke_test()
 
     repo_root = Path(__file__).resolve().parents[2]
     tasks_root = repo_root / "tasks"
@@ -98,51 +104,89 @@ mcp = FastMCP(name="finance-skills-mcp", lifespan=app_lifespan)
 
 
 # ---------------------------------------------------------------------------
-# Tool stubs (Task 2a). Task 2b replaces these bodies with real orchestration.
+# Helper: extract singletons from the request context. Lifespan_context is the
+# dict yielded above; Context.lifespan_context is its accessor.
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool
-async def list_skills() -> dict:
+def _ctx_catalog(ctx: Context) -> Catalog:
+    return ctx.lifespan_context["catalog"]  # type: ignore[index]
+
+
+def _ctx_task_mgr(ctx: Context) -> TaskManager:
+    return ctx.lifespan_context["task_mgr"]  # type: ignore[index]
+
+
+# ---------------------------------------------------------------------------
+# Tools (4)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
+)
+async def list_skills(ctx: Context) -> dict:
     """Return the in-memory catalog of available skills.
 
-    Task 2a stub — wired in Task 2b.
+    Wire shape (per ``specs/list-skills/spec.md``)::
+
+        {"skills": [{"id": str, "name": str, "description": str, "path": str}, ...]}
     """
-    raise NotImplementedError("list_skills — wired in Task 2b")
+    catalog = _ctx_catalog(ctx)
+    return {"skills": [s.to_wire_dict() for s in catalog.skills]}
 
 
-@mcp.tool
-async def create_task(prompt: str, skills: list[str]) -> dict:
-    """Create a new task. Returns ``{task_id}`` on success, BUSY on contention.
+@mcp.tool(
+    annotations=ToolAnnotations(destructiveHint=False, openWorldHint=True),
+)
+async def create_task(prompt: str, skills: list[str], ctx: Context):
+    """Create one task. Returns ``{task_id}`` on success or a structured error.
 
-    Task 2a stub — wired in Task 2b.
+    Errors (D-23): ``INVALID_PROMPT``, ``UNKNOWN_SKILL``, ``BUSY``,
+    ``STORAGE_ERROR``.
+
+    BUSY shape (D-23 / MCP-05): ``CallToolResult { isError: true, _meta: {
+    inflight_task_id, started_at } }``.
     """
-    raise NotImplementedError("create_task — wired in Task 2b")
+    task_mgr = _ctx_task_mgr(ctx)
+    return await task_mgr.create(prompt=prompt, skills=skills)
 
 
-@mcp.tool
-async def get_task_status(task_id: str) -> dict:
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
+)
+async def get_task_status(task_id: str, ctx: Context):
     """Read ``tasks/<task_id>/status.json``.
 
-    Task 2a stub — wired in Task 2b.
+    Wire shape on success (per ``specs/get-task-status/spec.md``)::
+
+        {"status": "working"|"completed"|"failed", "elapsed_seconds": float,
+         "task_id": str, "started_at": str, ...}
+
+    Error: ``TASK_NOT_FOUND`` (D-23).
     """
-    raise NotImplementedError("get_task_status — wired in Task 2b")
+    task_mgr = _ctx_task_mgr(ctx)
+    return await task_mgr.get_status(task_id=task_id)
 
 
-@mcp.tool
-async def get_task_result(task_id: str) -> dict:
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
+)
+async def get_task_result(task_id: str, ctx: Context):
     """Return ``{output_markdown, metadata}`` for a terminal task.
 
-    Task 2a stub — wired in Task 2b.
+    Errors (D-23 / D-24): ``TASK_NOT_FOUND``, ``TASK_NOT_TERMINAL``.
+    Does NOT block — clients poll ``get_task_status`` until terminal.
     """
-    raise NotImplementedError("get_task_result — wired in Task 2b")
+    task_mgr = _ctx_task_mgr(ctx)
+    return await task_mgr.get_result(task_id=task_id)
 
 
 async def main() -> None:
     """Process entry point: configure logging, start the stdio MCP server.
 
-    Logging goes to stderr only (D-25 — stdout is reserved for the MCP
-    JSON-RPC protocol on stdio transport). Phase 3 promotes to ``structlog``.
+    Logging goes to stderr only (D-25 — stdout is reserved for MCP JSON-RPC).
+    Phase 3 promotes to ``structlog``.
     """
     logging.basicConfig(
         level=logging.INFO,

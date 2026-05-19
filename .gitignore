@@ -25,3 +25,11 @@ build/
 # PlantUML cache dir written by Docker container when HOME is unresolved
 # (defense-in-depth — the `make diagrams` target sets -e HOME=/tmp to prevent this)
 /?/
+
+# Phase 1 runtime: task directories created by create_task at server runtime.
+# Each task gets tasks/<task_id>/ with input.md, status.json, output.md,
+# workspace/, logs/. Server-side runtime state — never committed.
+/tasks/
+
+# Phase 2 runtime: dynamic catalog persistence (not present in Phase 1).
+/.skills-index/
