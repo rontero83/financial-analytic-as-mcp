@@ -181,11 +181,34 @@ def stage_skills_in_workspace(
         # ``"<skill-name>"`` (one level under the scan-root); Phase-1 legacy
         # paths were ``"tests/fixtures/skills/<skill-name>"`` relative to
         # repo_root — both resolve cleanly via this loop.
+        #
+        # Defense-in-depth path-traversal guard (mirrors Phase-1 D-05 +
+        # the indexer's symlink-containment check at skill_indexer.py:138):
+        # the indexer guarantees relative paths today, but ``Skill.path``
+        # is a string field that has crossed multiple module boundaries by
+        # the time it reaches here. Reject absolute ``skill_path_str``
+        # outright (POSIX ``Path("/root") / "/etc"`` discards the LHS) and
+        # enforce ``is_relative_to(root_resolved)`` after ``.resolve()``
+        # so any ``..`` segments cannot escape the scan root.
+        sp = Path(skill_path_str)
         source: Path | None = None
         attempted: list[Path] = []
+        if sp.is_absolute():
+            # Absolute Skill.path is a contract violation — indexer always
+            # emits paths relative to the scan-root that produced them.
+            raise ValueError(
+                f"Skill {skill_name!r} has absolute path {skill_path_str!r}; "
+                f"only scan-root-relative paths are allowed"
+            )
         for root in candidate_roots:
-            candidate = (Path(root) / skill_path_str).resolve()
+            root_resolved = Path(root).resolve()
+            candidate = (root_resolved / sp).resolve()
             attempted.append(candidate)
+            # Containment check: candidate must stay inside the scan root
+            # after resolve() collapses any `..` segments. ``is_relative_to``
+            # mirrors the indexer guard at skill_indexer.py:138.
+            if not candidate.is_relative_to(root_resolved):
+                continue  # path traversal attempt — try next root
             if candidate.is_dir():
                 source = candidate
                 break
