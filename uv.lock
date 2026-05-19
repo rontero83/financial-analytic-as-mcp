@@ -467,6 +467,7 @@ dependencies = [
     { name = "fastmcp" },
     { name = "filelock" },
     { name = "pydantic" },
+    { name = "python-frontmatter" },
 ]
 
 [package.dev-dependencies]
@@ -476,7 +477,6 @@ dev = [
     { name = "pydantic" },
     { name = "pytest" },
     { name = "pytest-mock" },
-    { name = "python-frontmatter" },
 ]
 
 [package.metadata]
@@ -486,6 +486,7 @@ requires-dist = [
     { name = "fastmcp", specifier = ">=3.3.1,<4" },
     { name = "filelock", specifier = ">=3.16,<4" },
     { name = "pydantic", specifier = ">=2.9,<3" },
+    { name = "python-frontmatter", specifier = ">=1.1,<2" },
 ]
 
 [package.metadata.requires-dev]
@@ -495,7 +496,6 @@ dev = [
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-mock", specifier = ">=3.14" },
-    { name = "python-frontmatter", specifier = ">=1.1" },
 ]
 
 [[package]]
