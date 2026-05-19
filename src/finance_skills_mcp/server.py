@@ -70,6 +70,16 @@ def _parse_skill_roots_env(
     if not raw.strip():
         raw = "skills"
 
+    # WR-06 + WR-08: deduplicate scan roots after .resolve() so a config
+    # like FSMC_SKILL_ROOTS=skills:./skills or skills:skills/../skills
+    # does not silently double-walk the same tree (which would then
+    # cascade into per-skill DUPLICATE_NAME-vs-overlap noise inside the
+    # indexer). First-occurrence wins so the user-facing order in
+    # FSMC_SKILL_ROOTS is preserved for the unique entries. Each dropped
+    # duplicate emits a single stderr line so a misconfigured env var is
+    # visible to the operator (no new IndexErrorCode needed — the disk
+    # walk never observes the duplicate).
+    seen: set[Path] = set()
     roots: list[Path] = []
     for segment in raw.split(":"):
         segment = segment.strip()
@@ -78,7 +88,15 @@ def _parse_skill_roots_env(
         candidate = Path(segment)
         if not candidate.is_absolute():
             candidate = repo_root / candidate
-        roots.append(candidate.resolve())
+        resolved = candidate.resolve()
+        if resolved in seen:
+            sys.stderr.write(
+                f"finance-skills-mcp: WARNING — duplicate scan root "
+                f"{segment!r} (resolves to {resolved}) ignored\n"
+            )
+            continue
+        seen.add(resolved)
+        roots.append(resolved)
     # ``raw`` always contains at least the "skills" default token after the
     # blank-string guard above, so ``roots`` is guaranteed non-empty.
     return tuple(roots)

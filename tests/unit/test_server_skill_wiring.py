@@ -181,6 +181,29 @@ def test_parse_skill_roots_env_honors_absolute_segments(tmp_path: Path) -> None:
     )
 
 
+def test_parse_skill_roots_env_dedupes_resolved_duplicates(
+    tmp_path: Path, capsys
+) -> None:
+    """WR-06 + WR-08: roots resolving to the same path are deduped, with a
+    stderr warning per dropped duplicate. First occurrence wins.
+    """
+    target = tmp_path / "skills"
+    target.mkdir()
+    # Three textually-distinct segments, all resolving to the same dir.
+    roots = _parse_skill_roots_env(
+        repo_root=tmp_path,
+        env={"FSMC_SKILL_ROOTS": "skills:./skills:skills/../skills"},
+    )
+    assert roots == (target.resolve(),)
+
+    captured = capsys.readouterr()
+    # Exactly two duplicates dropped → exactly two warning lines.
+    warn_lines = [
+        line for line in captured.err.splitlines() if "duplicate scan root" in line
+    ]
+    assert len(warn_lines) == 2, captured.err
+
+
 # ---------------------------------------------------------------------------
 # Lifespan — happy / fatal / immutability
 # ---------------------------------------------------------------------------
