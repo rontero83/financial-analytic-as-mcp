@@ -143,15 +143,25 @@ async def app_lifespan(server: FastMCP):
 
     repo_root = Path(__file__).resolve().parents[2]
     tasks_root = repo_root / "tasks"
-    tasks_root.mkdir(exist_ok=True)
+    # D-22 / EXEC-07: every blocking I/O call inside an async function
+    # (including this lifespan) must hop a worker thread so the asyncio
+    # event loop is never blocked. Mirrors the wrapper pattern at
+    # task_manager.py:162/196/214 for task_store.atomic_write_* calls.
+    await anyio.to_thread.run_sync(lambda: tasks_root.mkdir(exist_ok=True))
 
     skill_roots = _parse_skill_roots_env(repo_root=repo_root)
     index_dir = repo_root / INDEX_DIR_NAME
-    index_result: IndexResult = index_skills(skill_roots)
+    # ``index_skills`` walks each scan root with sync glob/stat/read_text +
+    # YAML parsing per SKILL.md — pure CPU + disk, must not block the loop.
+    index_result: IndexResult = await anyio.to_thread.run_sync(
+        index_skills, skill_roots
+    )
 
     # Persist BEFORE evaluating the fatal guards so the operator always has
     # a fresh errors.json on disk to consult after the process exits.
-    persist_index(index_result, index_dir)
+    # ``persist_index`` does mkdir + 2x atomic_write_json (each: mkstemp,
+    # fdopen, write, fsync, os.replace, dir fsync) — wrap in worker thread.
+    await anyio.to_thread.run_sync(persist_index, index_result, index_dir)
 
     # D-32 — duplicate-name fatal. Evaluated BEFORE D-33 because a duplicate
     # could pathologically be the only thing keeping the catalog non-empty;
