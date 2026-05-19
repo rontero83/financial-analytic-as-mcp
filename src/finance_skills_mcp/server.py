@@ -22,18 +22,24 @@ from pathlib import Path
 from typing import Mapping
 
 import anyio
+import structlog
 from fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 
 from finance_skills_mcp import agent_runner, task_store
 from finance_skills_mcp.errors import IndexErrorCode
 from finance_skills_mcp.lock_manager import LockManager
+from finance_skills_mcp.logging_config import configure_logging
 from finance_skills_mcp.skill_catalog import Catalog
 from finance_skills_mcp.skill_index_store import INDEX_DIR_NAME, persist_index
 from finance_skills_mcp.skill_indexer import IndexResult, index as index_skills
 from finance_skills_mcp.task_manager import TaskManager
 
+# Stdlib ``logging.Logger`` retained for the in-lifespan auth-success line
+# (legacy ``log.info`` call sites). The structlog logger is the canonical
+# pipeline for any NEW server-level events emitted under D-37.
 log = logging.getLogger("finance_skills_mcp.server")
+_slog = structlog.get_logger("finance_skills_mcp.server")
 
 
 def _parse_skill_roots_env(
@@ -347,16 +353,13 @@ async def get_task_result(task_id: str, ctx: Context):
 
 
 async def main() -> None:
-    """Process entry point: configure logging, start the stdio MCP server.
+    """Process entry point: configure structlog, start the stdio MCP server.
 
     Logging goes to stderr only (D-25 — stdout is reserved for MCP JSON-RPC).
-    Phase 3 promotes to ``structlog``.
+    Phase 3 promoted to ``structlog`` via ``configure_logging()`` (D-36).
+    The call is idempotent so re-entrant test setups remain safe.
     """
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        stream=sys.stderr,
-    )
+    configure_logging()
     # A1 verified: FastMCP 3.3.1 exposes run_stdio_async().
     await mcp.run_stdio_async()
 
