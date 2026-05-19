@@ -1,0 +1,13 @@
+@startuml get_task_status
+!include _common.puml
+
+note over F: No lock interaction; no agent SDK call;\n<200ms event-loop hygiene (tested in Phase 1)
+note over TS: status in {working, completed, failed} (C-01)
+
+C  -> F  : 1. tools/call get_task_status({task_id})
+F  -> TS : 2. read_status(task_id)
+TS -> TS : 3. read tasks/<id>/status.json from filesystem
+TS -> F  : 4. {status, elapsed_seconds, task_id}
+F  -> C  : 5. CallToolResult { content: [...] }
+
+@enduml

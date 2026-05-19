@@ -1,0 +1,19 @@
+@startuml get_task_result
+!include _common.puml
+
+note over F: No outputSchema declared — Claude Code bug #25081 (D-11)
+
+C  -> F  : 1. tools/call get_task_result({task_id})
+F  -> TS : 2. read_status(task_id)
+TS -> F  : 3. status
+
+alt terminal state (status in {completed, failed})
+  F  -> TS : 4a. read_output(task_id)
+  TS -> F  : 5a. output_markdown
+  F  -> C  : 6a. {output_markdown, metadata, status}
+else non-terminal state (status == "working")
+  note over F: DOES NOT block — explicit divergence\nfrom MCP 2025-11-25 Tasks spec (D-14)
+  F  -> C  : 4b. CallToolResult {\n      isError: true,\n      content:[{type:"text", text:"task still working"}]\n    }
+end
+
+@enduml

@@ -1,0 +1,26 @@
+@startuml init
+!include _common.puml
+
+' SkillIndexer is a Phase 2 deliverable; shown here for contract completeness (SPEC-02).
+participant SkillIndexer as SI
+note over SI: Phase 2 deliverable; shown for contract completeness
+
+box "Init only" #FAFAFA
+  participant SI
+end box
+
+== Server bootstrap ==
+
+[-> SI : 1. main.py constructs SkillIndexer
+SI -> SI : 2. walks skills/ for SKILL.md files\n   (filesystem scan)
+SI -> SI : 3. parses YAML frontmatter\n   (python-frontmatter)
+SI -> SI : 4. writes .skills-index/catalog.json
+SI -> CAT : 5. returns Catalog (frozen) to main
+note over CAT: In-memory Catalog is now frozen\n(no further disk I/O at call time)
+
+[-> LM : 6a. main.py constructs LockManager (idle)
+[-> TM : 6b. main.py constructs TaskManager(catalog, lock, runner, store)
+[-> F  : 7. main.py registers @mcp.tool functions on FastMCP instance
+F -->] : 8. FastMCP ready — listening on stdio/HTTP
+
+@enduml

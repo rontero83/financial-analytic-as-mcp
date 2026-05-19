@@ -1,0 +1,29 @@
+@startuml create_task
+!include _common.puml
+
+C  -> F   : 1. tools/call create_task({prompt, skills})
+F  -> TM  : 2. create(prompt, skills)
+TM -> CAT : 3. validate every skill name
+
+alt happy path (lock acquirable)
+  TM -> LM : 4a. try_acquire(task_id)
+  LM -> TM : 5a. True
+  TM -> TS : 6a. new_task(task_id)
+  TS -> TS : 7a. mkdir tasks/<id>/, write input.md,\n    write status.json(working)
+  note over AR: 8a. fresh query() — NO resume=, NO\ncontinue_conversation=True\n(THE clear-context primitive — C-03)
+  TM -> AR : 9a. run(prompt, skills, cwd=tasks/<id>/workspace/)
+  AR -> AR : 10a. claude-agent-sdk query(prompt,\n    options=ClaudeAgentOptions(\n      plugins=[{type:local,path:<repo>}],\n      skills=[...]))
+  AR -> TM : 11a. AsyncIterator[Message] → final text
+  note over TM: Write order: output.md (atomic) FIRST,\nthen status.json:completed (Pitfall #9 —\nnever status:completed before output is durable)
+  TM -> TS : 12a. write output.md (atomic),\n     then status.json(completed)
+  TM -> LM : 13a. release()
+  TM -> F  : 14a. {task_id}
+  F  -> C  : 15a. CallToolResult { content: [{type:"text",\n      text: task_id}] }
+else BUSY branch (lock NOT acquirable)
+  TM -> LM : 4b. try_acquire(task_id)
+  LM -> TM : 5b. False, current_task_id=<other_id>,\n    started_at=<ts>
+  TM -> F  : 6b. BUSY (no dirs created, no writes)
+  F  -> C  : 7b. CallToolResult {\n      isError: true,\n      content: [{type:"text", text:"BUSY"}],\n      _meta: {inflight_task_id, started_at}\n    }
+end
+
+@enduml

@@ -1,0 +1,12 @@
+@startuml list_skills
+!include _common.puml
+
+note over F: readOnlyHint: true
+note over CAT: Frozen in-memory; no disk I/O at call time
+
+C  -> F   : 1. tools/call list_skills
+F  -> CAT : 2. list()
+CAT -> F  : 3. [SkillSummary, ...]\n   (read from frozen in-memory)
+F  -> C   : 4. { skills: [{id, name, description, path}] }
+
+@enduml
