@@ -16,6 +16,7 @@ from __future__ import annotations
 import collections
 import logging
 import os
+import shutil
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -26,10 +27,14 @@ import structlog
 from fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 
-from finance_skills_mcp import agent_runner, task_store
+from finance_skills_mcp import agent_runner, errors, task_store
 from finance_skills_mcp.errors import IndexErrorCode
 from finance_skills_mcp.lock_manager import LockManager
-from finance_skills_mcp.logging_config import configure_logging
+from finance_skills_mcp.logging_config import (
+    bind_task_context,
+    clear_task_context,
+    configure_logging,
+)
 from finance_skills_mcp.skill_catalog import Catalog
 from finance_skills_mcp.skill_index_store import INDEX_DIR_NAME, persist_index
 from finance_skills_mcp.skill_indexer import IndexResult, index as index_skills
@@ -106,6 +111,51 @@ def _parse_skill_roots_env(
     # ``raw`` always contains at least the "skills" default token after the
     # blank-string guard above, so ``roots`` is guaranteed non-empty.
     return tuple(roots)
+
+
+def _parse_free_space_mb_env(env: Mapping[str, str] | None = None) -> int:
+    """Parse ``FSMC_FREE_SPACE_MB`` into a positive int (D-41).
+
+    Default when unset or empty/whitespace: ``100`` (megabytes). Invalid
+    values (non-integer, zero, negative) raise ``ValueError`` so
+    ``app_lifespan`` can map the failure to ``sys.exit(5)`` with an
+    actionable stderr message — distinct from D-32 ``sys.exit(3)``
+    (duplicate skill name) and D-33 ``sys.exit(4)`` (empty catalog), so
+    the operator can ``case $?`` in shell to triage.
+
+    Args:
+        env: a mapping to read from (defaults to ``os.environ``). Tests
+            inject a controlled ``Mapping`` so they never touch the real
+            process environment — mirrors the established
+            ``_parse_skill_roots_env`` DI contract.
+
+    Returns:
+        The configured threshold in megabytes (positive int).
+
+    Raises:
+        ValueError: if the env value is a non-integer, zero, or negative.
+            The message names both the env var and the offending value so
+            operators can copy-paste the diagnostic into their shell config.
+    """
+    if env is None:
+        env = os.environ
+    raw = env.get("FSMC_FREE_SPACE_MB", "").strip()
+    if not raw:
+        return 100  # D-41 default
+    try:
+        # int("100.5") raises ValueError — exactly what we want (D-41 is
+        # positive INTEGER, not float). int(" 50 ") tolerates surrounding
+        # whitespace which we keep so operators can quote their env values.
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"FSMC_FREE_SPACE_MB must be a positive integer; got {raw!r}"
+        ) from exc
+    if value <= 0:
+        raise ValueError(
+            f"FSMC_FREE_SPACE_MB must be a positive integer; got {value}"
+        )
+    return value
 
 
 def _auth_smoke_test() -> None:
@@ -187,6 +237,19 @@ async def app_lifespan(server: FastMCP):
                 f"directory that contains skills/ and tasks/\n"
             )
             sys.exit(2)
+    # D-41 / OPS-06: parse the disk-precheck threshold BEFORE creating
+    # tasks_root. Invalid values exit with code 5 (distinct from D-32 exit
+    # 3 and D-33 exit 4) so the operator can branch on `case $?` in shell.
+    try:
+        free_space_threshold_mb = _parse_free_space_mb_env()
+    except ValueError as exc:
+        sys.stderr.write(
+            "finance-skills-mcp: INVALID FSMC_FREE_SPACE_MB — refusing to start (D-41)\n"
+            f"  {exc}\n"
+            "  Set FSMC_FREE_SPACE_MB to a positive integer (default: 100).\n"
+        )
+        sys.exit(5)
+
     tasks_root = repo_root / "tasks"
     # D-22 / EXEC-07: every blocking I/O call inside an async function
     # (including this lifespan) must hop a worker thread so the asyncio
@@ -265,6 +328,7 @@ async def app_lifespan(server: FastMCP):
             "catalog": catalog,
             "lock_mgr": lock_mgr,
             "task_mgr": task_mgr,
+            "free_space_threshold_mb": free_space_threshold_mb,
         }
     finally:
         await lock_mgr.shutdown()
@@ -285,6 +349,18 @@ def _ctx_catalog(ctx: Context) -> Catalog:
 
 def _ctx_task_mgr(ctx: Context) -> TaskManager:
     return ctx.lifespan_context["task_mgr"]  # type: ignore[index]
+
+
+def _ctx_free_space_threshold_mb(ctx: Context) -> int:
+    """Return the D-41 configured disk-precheck threshold (MB).
+
+    Bound during ``app_lifespan`` from ``_parse_free_space_mb_env()``.
+    Surfaced via the lifespan dict so the precheck inside ``create_task``
+    does not re-read ``os.environ`` on every call (the env is captured at
+    startup; runtime hot-reload is an explicit non-goal per 03-CONTEXT
+    deferred list).
+    """
+    return ctx.lifespan_context["free_space_threshold_mb"]  # type: ignore[index]
 
 
 # ---------------------------------------------------------------------------
