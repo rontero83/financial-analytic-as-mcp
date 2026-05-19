@@ -6,9 +6,15 @@ authors = [
     { name = "Stas", email = "rontero@gmail.com" }
 ]
 requires-python = ">=3.10"
-# Phase 0: runtime deps empty per D-18.
-# Phase 1 adds: fastmcp, claude-agent-sdk, filelock, structlog, anyio.
-dependencies = []
+# Phase 1 runtime deps (added 2026-05-19 — plan 01-01).
+# Standard stack per .planning/phases/01-vertical-slice-4-tools-fixture-skill/01-RESEARCH.md §Standard Stack.
+dependencies = [
+    "fastmcp>=3.3.1,<4",
+    "claude-agent-sdk>=0.2.82,<0.3",
+    "anyio>=4.6,<5",
+    "filelock>=3.16,<4",
+    "pydantic>=2.9,<3",
+]
 
 [build-system]
 requires = ["uv_build>=0.11.7,<0.12.0"]
