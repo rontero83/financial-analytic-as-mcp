@@ -35,6 +35,18 @@ class IndexErrorCode(str, Enum):
     distinguishes a symlink-escape failure from a name-format failure so the
     operator's ``errors.json`` consumers can branch cleanly).
 
+    Phase 2 code-review fix extensions (additive, do not rename existing
+    members so on-disk ``errors.json`` schema stays backwards-compatible):
+
+    - ``FILE_TOO_LARGE`` — SKILL.md exceeds the per-file size cap
+      (WR-01: startup-time DoS mitigation).
+    - ``IO_ERROR`` — generic OSError from read_text / stat that is not
+      already covered by ENCODING_ERROR or INVALID_PATH (WR-02: permission
+      errors, broken pipe, etc., must not abort the whole scan).
+    - ``MISSING_ROOT`` — a configured scan root does not exist on disk;
+      reported once per missing root and the remaining roots are still
+      scanned (WR-03: partial-result preservation).
+
     All members EXCEPT ``UNKNOWN_FIELD`` are hard errors — the offending
     skill is skipped. ``UNKNOWN_FIELD`` is warning severity — the skill is
     still indexed (D-28).
@@ -49,6 +61,9 @@ class IndexErrorCode(str, Enum):
     DUPLICATE_NAME = "DUPLICATE_NAME"
     UNKNOWN_FIELD = "UNKNOWN_FIELD"
     INVALID_PATH = "INVALID_PATH"
+    FILE_TOO_LARGE = "FILE_TOO_LARGE"
+    IO_ERROR = "IO_ERROR"
+    MISSING_ROOT = "MISSING_ROOT"
 
     def is_warning(self) -> bool:
         """True only for ``UNKNOWN_FIELD`` (D-28 — warning severity)."""

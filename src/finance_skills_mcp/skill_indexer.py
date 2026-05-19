@@ -46,6 +46,13 @@ from finance_skills_mcp.skill_catalog import Catalog, Skill
 # separately at validation time (`2 <= len(name) <= 64`).
 NAME_REGEX: re.Pattern[str] = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$")
 
+# WR-01: per-file size cap on SKILL.md. Frontmatter plus a brief description
+# fits in well under 1 MiB; anything larger is either accidental (a long-form
+# document the author meant to put under references/) or hostile (DoS attempt
+# against the read_text call below). Discovered files exceeding this cap
+# emit FILE_TOO_LARGE and are skipped without read_text being called.
+MAX_SKILL_MD_BYTES: int = 1 * 1024 * 1024  # 1 MiB
+
 # D-28: required + optional whitelist. Any key outside this set emits a
 # warning-severity UNKNOWN_FIELD error per offending key, but does NOT
 # reject the skill.
@@ -174,6 +181,26 @@ def _scan_one_root(
                 )
             )
             continue
+        # WR-01: cap the per-file size BEFORE read_text() allocates the buffer.
+        # A 2 GB SKILL.md (real or symlink-target — symlinks are blocked
+        # earlier by the containment check) would OOM the server at startup.
+        if size > MAX_SKILL_MD_BYTES:
+            errors.append(
+                IndexError(
+                    path=str(skill_md_path),
+                    error_code=IndexErrorCode.FILE_TOO_LARGE,
+                    message=(
+                        f"SKILL.md is {size} bytes; cap is "
+                        f"{MAX_SKILL_MD_BYTES} bytes"
+                    ),
+                    hint=(
+                        "SKILL.md should hold frontmatter + a brief description; "
+                        "move long-form content into references/ and link from "
+                        "the body"
+                    ),
+                )
+            )
+            continue
 
         try:
             text = resolved.read_text(encoding="utf-8")
@@ -184,6 +211,24 @@ def _scan_one_root(
                     error_code=IndexErrorCode.ENCODING_ERROR,
                     message=f"SKILL.md is not valid UTF-8: byte offset {e.start}: {e.reason}",
                     hint="re-save the file as UTF-8 (no BOM)",
+                )
+            )
+            continue
+        except OSError as e:
+            # WR-02: PermissionError (a subclass of OSError) was previously
+            # uncaught here and propagated out of the scan, taking the
+            # entire indexer down for ONE unreadable SKILL.md. Mirror the
+            # symmetry of the stat() catch above so a single bad file
+            # becomes a per-skill error and the scan continues.
+            errors.append(
+                IndexError(
+                    path=str(skill_md_path),
+                    error_code=IndexErrorCode.IO_ERROR,
+                    message=f"cannot read SKILL.md: {e}",
+                    hint=(
+                        "check the file permissions on SKILL.md and on its "
+                        "parent directory (read + execute respectively)"
+                    ),
                 )
             )
             continue
