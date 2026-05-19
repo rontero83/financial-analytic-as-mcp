@@ -385,6 +385,7 @@ Use these entry points:
 - `/gsd-execute-phase` for planned phase work
 
 Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
+GSD CLI should comunicate with cli operator in russian language
 <!-- GSD:workflow-end -->
 
 <!-- GSD:profile-start -->
