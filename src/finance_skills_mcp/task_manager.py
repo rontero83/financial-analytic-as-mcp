@@ -114,6 +114,30 @@ class TaskManager:
                 task_dir / "input.md",
                 prompt,
             )
+
+            # 4b. Stage requested skills under <workspace>/.claude/skills/<name>/
+            # so the SDK discovers them (D-15/D-17 workspace prep). This is the
+            # mechanism by which fixture-skill-alpha (and Phase 2's real skills)
+            # become visible to the SDK; without it the SDK reports
+            # "No project skills found" and the agent ignores the SKILL.md body.
+            skill_entries = [
+                (s.name, s.path)
+                for s in self.catalog.skills
+                if s.id in set(skills)
+            ]
+            try:
+                await anyio.to_thread.run_sync(
+                    self.task_store.stage_skills_in_workspace,
+                    task_dir / "workspace",
+                    self.repo_root,
+                    skill_entries,
+                )
+            except (OSError, FileNotFoundError, ValueError) as exc:
+                log.exception("Failed to stage skills in workspace")
+                return errors.validation_error(
+                    "STORAGE_ERROR",
+                    f"Failed to stage skill files: {exc}",
+                )
             initial_status = {
                 "task_id": task_id,
                 "status": "working",

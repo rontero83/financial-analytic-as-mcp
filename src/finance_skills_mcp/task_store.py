@@ -25,6 +25,7 @@ __all__ = [
     "atomic_write_json",
     "create_task_dirs",
     "read_status_json",
+    "stage_skills_in_workspace",
 ]
 
 
@@ -118,6 +119,59 @@ def create_task_dirs(tasks_root: Path, task_id: str) -> Path:
     (d / "workspace").mkdir(parents=True, exist_ok=True)
     (d / "logs").mkdir(parents=True, exist_ok=True)
     return d
+
+
+def stage_skills_in_workspace(
+    workspace: Path, repo_root: Path, skill_entries: list[tuple[str, str]]
+) -> None:
+    """Materialise requested skills under ``<workspace>/.claude/skills/<name>/``.
+
+    The Claude Agent SDK discovers project skills under one of a fixed set of
+    paths relative to its ``cwd`` — ``.claude/skills/`` is the canonical one.
+    Passing ``skills=[...]`` to ``ClaudeAgentOptions`` is a context **filter**,
+    not a discovery mechanism: the SDK won't find a skill that isn't physically
+    present under one of those paths.
+
+    Phase 1 walking-skeleton discovery: copy each skill directory's tree
+    (SKILL.md plus any sibling files) into ``<workspace>/.claude/skills/<name>/``
+    so the per-task workspace contains exactly the skills the client requested.
+    Per-task isolation is preserved (each workspace is fresh; nothing leaks
+    across tasks — that's EXEC-02's guarantee in disk form).
+
+    Args:
+        workspace: the per-task workspace (``ClaudeAgentOptions.cwd``).
+        repo_root: the project repository root; ``skill_entries`` paths are
+            interpreted relative to this.
+        skill_entries: ``(skill_name, skill_path)`` tuples sourced from the
+            Catalog. ``skill_path`` is the relative-to-``repo_root`` string
+            stored in ``Skill.path``.
+
+    Notes:
+        Symlinks would be lighter but risk breaking sandboxed agent reads
+        when ``permission_mode`` evolves; a flat directory copy is robust
+        and cheap (the fixture skill is one file).
+    """
+    import shutil
+
+    if not skill_entries:
+        return
+    workspace = Path(workspace)
+    repo_root = Path(repo_root)
+    target_root = workspace / ".claude" / "skills"
+    target_root.mkdir(parents=True, exist_ok=True)
+    for skill_name, skill_path_str in skill_entries:
+        source = (repo_root / skill_path_str).resolve()
+        if not source.is_dir():
+            # Skill metadata pointed at a non-existent directory — surface as
+            # a hard error so the caller turns it into STORAGE_ERROR rather
+            # than letting the SDK silently fail to find the skill.
+            raise FileNotFoundError(
+                f"Skill {skill_name!r} path does not exist on disk: {source}"
+            )
+        dest = target_root / skill_name
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(source, dest, symlinks=False)
 
 
 def read_status_json(tasks_root: Path, task_id: str) -> dict:

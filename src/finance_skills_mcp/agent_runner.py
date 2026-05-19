@@ -26,7 +26,8 @@ async def run(prompt: str, skills: list[str], cwd: Path) -> str:
         prompt: User prompt to send to the agent (already validated upstream).
         skills: Skill IDs to load via the SDK's ``plugins=[{"type":"local",...}]``
             mechanism. The SDK discovers ``.claude-plugin/plugin.json`` under
-            ``repo_root`` and loads matching SKILL.md files.
+            each plugin root and loads matching SKILL.md files from the
+            ``"skills"`` subdirectory declared inside that plugin.json.
         cwd: Workspace directory handed to the agent as its ``cwd``. Per-task
             isolation lives here (D-04).
 
@@ -36,6 +37,21 @@ async def run(prompt: str, skills: list[str], cwd: Path) -> str:
     """
     # repo_root = <this file>/../.. = src/finance_skills_mcp/../.. = repo
     repo_root = Path(__file__).resolve().parents[2]
+
+    # Skill discovery in the SDK is filesystem-driven: the SDK scans the
+    # ``cwd`` (the per-task workspace) for a fixed set of subdirectories
+    # (``.claude/skills/``, etc.) — NOT the ``plugins=`` list. Skill staging
+    # is therefore the caller's responsibility (TaskManager copies each
+    # requested skill's directory into ``<cwd>/.claude/skills/<name>/`` via
+    # ``task_store.stage_skills_in_workspace``). Verified empirically during
+    # the 01-02 live run: without that staging the agent reports
+    # "No project skills found" regardless of what we pass to ``plugins=``
+    # or ``skills=``.
+    #
+    # We still pass the repo as a local plugin so the project's
+    # ``.claude-plugin/plugin.json`` (commands/agents/hooks) is available to
+    # the agent. The ``skills=`` filter still scopes WHICH discovered skills
+    # are enabled for this session (a context filter, not a discovery hook).
     options = ClaudeAgentOptions(
         cwd=str(cwd),
         plugins=[{"type": "local", "path": str(repo_root)}],
