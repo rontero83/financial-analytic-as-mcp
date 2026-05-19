@@ -130,9 +130,10 @@ class TaskManager:
 
             # 4b. Stage requested skills under <workspace>/.claude/skills/<name>/
             # so the SDK discovers them (D-15/D-17 workspace prep). This is the
-            # mechanism by which fixture-skill-alpha (and Phase 2's real skills)
-            # become visible to the SDK; without it the SDK reports
-            # "No project skills found" and the agent ignores the SKILL.md body.
+            # mechanism by which Phase-2 indexed skills become visible to the
+            # SDK; without it the SDK reports "No project skills found" and the
+            # agent ignores the SKILL.md body. Skill identity is opaque to this
+            # module per UNIV-03 — no skill name appears as a literal here.
             skill_entries = [
                 (s.name, s.path)
                 for s in self.catalog.skills
