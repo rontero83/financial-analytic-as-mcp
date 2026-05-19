@@ -1,7 +1,7 @@
-"""BUSY semantics + event-loop hygiene (MCP-05, EXEC-07, D-21).
+"""BUSY semantics (MCP-05).
 
-Three guarantees this file proves empirically against the in-memory FastMCP
-server with a slow ``MockAgentRunner`` standing in for the real Claude SDK:
+Two guarantees this file proves empirically against the in-memory FastMCP
+server with a slow stand-in for the real Claude SDK:
 
 1. **BUSY wire shape** — while one ``create_task`` is in flight, a second
    ``create_task`` returns ``CallToolResult { isError: true, _meta: {
@@ -14,24 +14,17 @@ server with a slow ``MockAgentRunner`` standing in for the real Claude SDK:
    BUSY error). This proves the §A4 ``ErrorToolResult`` wire shape conforms
    to the contract, not just our own assertions.
 
-3. **Event-loop hygiene (D-21 / EXEC-07)** — while a 2-second mock agent
-   blocks the lock, 20 concurrent ``get_task_status`` calls each return in
-   well under 200 ms. Read tools must NOT be serialised behind the
-   long-running agent invocation; the only thing serialised is
-   ``create_task`` itself.
-
-NOTE on dedup: plan 01-04 will land a dedicated ``test_event_loop.py`` that
-covers the 200 ms hygiene contract canonically. The 200 ms assertion in
-``test_status_polls_stay_under_200ms_during_long_task`` here STAYS until
-01-04 lands; it will be removed in 01-04's TDD cycle. (per executor critical
-constraints; tracked in 01-03-SUMMARY.md and as a deferred-item for 01-04).
+Dedup note: the D-21 / EXEC-07 200 ms event-loop hygiene test that used to
+live here has moved to ``tests/integration_in_memory/test_event_loop.py``
+(its canonical home per 01-04-PLAN.md Task 1 and 01-03-SUMMARY.md Deferred
+Items #1). The 1-line cross-reference comment near the bottom of this file
+preserves discoverability.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import re
-import time
 from pathlib import Path
 
 import jsonschema
@@ -40,7 +33,6 @@ from fastmcp import Client
 
 from finance_skills_mcp import agent_runner as _agent_runner_module
 from finance_skills_mcp.server import mcp
-from tests._fixtures.mock_agent_runner import MockAgentRunner
 from tests.integration_live._client_helpers import (
     extract_data,
     extract_meta,
@@ -285,81 +277,5 @@ async def test_busy_response_has_correct_shape(monkeypatch):
             await a  # let Task A drain cleanly
 
 
-@pytest.mark.in_memory
-@pytest.mark.anyio
-async def test_status_polls_stay_under_200ms_during_long_task(monkeypatch):
-    """20 concurrent get_task_status calls each return in < 200 ms during a 2 s task.
-
-    This is the D-21 / EXEC-07 event-loop hygiene guard. If any blocking I/O
-    leaked into the `async def` tool handlers (forgot to `anyio.to_thread.run_sync`,
-    held the asyncio.Lock during agent run, etc.) the status polls would
-    serialise behind the agent invocation and individual polls would exceed
-    200 ms.
-
-    Trick: we use the BUSY response's `inflight_task_id` to obtain the
-    in-flight task_id WITHOUT racing the slow runner.
-    """
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "mock-eventloop-test-key")
-
-    async def slow_runner(prompt, skills, cwd):
-        await asyncio.sleep(2.0)
-        return "done"
-
-    monkeypatch.setattr(_agent_runner_module, "run", slow_runner)
-
-    async with Client(mcp) as client:
-        running = asyncio.create_task(
-            client.call_tool(
-                "create_task",
-                {"prompt": "long task", "skills": ["fixture-skill-alpha"]},
-            ),
-            name="long-task",
-        )
-
-        # Let the lock + status.json be written.
-        await asyncio.sleep(0.3)
-
-        # Extract the in-flight task_id via a BUSY probe (no race window).
-        busy = await client.call_tool(
-            "create_task",
-            {"prompt": "probe", "skills": ["fixture-skill-alpha"]},
-            raise_on_error=False,
-        )
-        assert is_error(busy), "expected BUSY while long task is in flight"
-        task_id = extract_meta(busy)["inflight_task_id"]
-
-        # Fire 20 concurrent get_task_status polls; measure each individually.
-        async def timed_poll() -> float:
-            t0 = time.perf_counter()
-            r = await client.call_tool(
-                "get_task_status", {"task_id": task_id}
-            )
-            elapsed = time.perf_counter() - t0
-            assert not is_error(r), (
-                f"get_task_status returned error during long task: "
-                f"{extract_meta(r)!r}"
-            )
-            data = extract_data(r)
-            # While the long task runs, status must be "working" (not "pending"
-            # or "running" — those are forbidden vocabulary per MCP 2025-11-25).
-            assert data.get("status") == "working", (
-                f"unexpected status during in-flight poll: {data!r}"
-            )
-            return elapsed
-
-        durations = await asyncio.gather(*(timed_poll() for _ in range(20)))
-
-        # Each individual poll must be < 200 ms. Some can be much faster; the
-        # ceiling is the contract.
-        slow = [
-            (i, d) for i, d in enumerate(durations) if d >= 0.2
-        ]
-        assert not slow, (
-            f"Status polls exceeded 200ms (D-21 hygiene contract):\n"
-            + "\n".join(f"  poll[{i}] = {d*1000:.1f} ms" for i, d in slow)
-            + f"\nAll durations (ms): {[round(d*1000, 1) for d in durations]!r}"
-        )
-
-        # Drain the long task cleanly.
-        a_result = await running
-        assert not is_error(a_result)
+# Canonical D-21 test lives in test_event_loop.py — moved per Phase 1 dedup
+# (01-04-PLAN.md Task 1; 01-03-SUMMARY.md Deferred Items #1).
