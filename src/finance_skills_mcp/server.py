@@ -389,12 +389,51 @@ async def create_task(prompt: str, skills: list[str], ctx: Context):
     """Create one task. Returns ``{task_id}`` on success or a structured error.
 
     Errors (D-23): ``INVALID_PROMPT``, ``UNKNOWN_SKILL``, ``BUSY``,
-    ``STORAGE_ERROR``.
+    ``STORAGE_ERROR``, ``DISK_FULL`` (D-42 / OPS-06).
 
     BUSY shape (D-23 / MCP-05): ``CallToolResult { isError: true, _meta: {
     inflight_task_id, started_at } }``.
+
+    DISK_FULL shape (D-42 / OPS-06): ``CallToolResult { isError: true,
+    _meta: { error_code: "DISK_FULL", free_mb, threshold_mb } }``. The
+    precheck runs BEFORE the single-task lock is acquired and BEFORE any
+    task directory is created — D-43 deliberately excludes ``list_skills``,
+    ``get_task_status``, ``get_task_result`` from the gate.
     """
+    threshold_mb = _ctx_free_space_threshold_mb(ctx)
     task_mgr = _ctx_task_mgr(ctx)
+    tasks_root = task_mgr.tasks_root  # already validated absolute path
+    # D-22 / EXEC-07: shutil.disk_usage is a stat() syscall — wrap in a
+    # worker thread so the event loop stays responsive. The forbid_async_open
+    # CI guard is regex-based on bare open() so it does not flag this; the
+    # plan's acceptance criteria pin the wrapper requirement explicitly.
+    usage = await anyio.to_thread.run_sync(shutil.disk_usage, tasks_root)
+    free_mb = usage.free // (1024 * 1024)
+    if free_mb < threshold_mb:
+        # D-39 disk_precheck_refused event. The contextvars binding seeds
+        # the standard D-38 trio so the JSON line carries tool_name +
+        # skill_ids; task_id is not yet generated (the precheck runs BEFORE
+        # TaskManager.create()), so use the sentinel "<pre-task>". Clear
+        # in the finally block so the next request starts clean.
+        bind_task_context(
+            task_id="<pre-task>",
+            tool_name="create_task",
+            skill_ids=list(skills) if isinstance(skills, list) else [],
+        )
+        try:
+            structlog.get_logger("finance_skills_mcp.server").info(
+                "disk_precheck_refused",
+                free_mb=int(free_mb),
+                threshold_mb=int(threshold_mb),
+            )
+        finally:
+            clear_task_context()
+        return errors.validation_error(
+            "DISK_FULL",
+            f"Free disk space {free_mb} MB is below threshold {threshold_mb} MB",
+            free_mb=int(free_mb),
+            threshold_mb=int(threshold_mb),
+        )
     return await task_mgr.create(prompt=prompt, skills=skills)
 
 
