@@ -253,6 +253,22 @@ class TaskManager:
                 )
             except (OSError, FileNotFoundError, ValueError) as exc:
                 log.exception("Failed to stage skills in workspace")
+                # WR-02: the create_task_dirs failure block above emits
+                # ``task_failed`` via the global structlog before returning
+                # STORAGE_ERROR. The staging-failure path used to return the
+                # same error code WITHOUT a structured terminal event, so an
+                # operator grepping for ``"event":"task_failed"`` would see
+                # the task vanish silently. Mirror the sibling path's emit
+                # so the structured-log surface stays symmetric. The orphan
+                # task dir (workspace + logs) survives — operators can rm it
+                # by hand or wait for retention; the goal here is event
+                # parity, not directory cleanup.
+                _slog.error(
+                    "task_failed",
+                    status="failed",
+                    error_class=type(exc).__name__,
+                    error_reason="storage_error_stage_skills",
+                )
                 return errors.validation_error(
                     "STORAGE_ERROR",
                     f"Failed to stage skill files: {exc}",
