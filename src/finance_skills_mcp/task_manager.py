@@ -41,6 +41,36 @@ TASK_TIMEOUT_SECONDS = float(os.environ.get("FSM_TASK_TIMEOUT_SECONDS", "600")) 
 MAX_PROMPT_BYTES = 102_400  # D-23 (specs/create-task/spec.md INVALID_PROMPT)
 
 
+async def _emit_tlog(tlog: Any, event: str, **kw: Any) -> None:
+    """Emit a per-task structlog line off the event loop (D-22 strict).
+
+    The per-task ``server.jsonl`` handle is line-buffered (see
+    ``logging_config.task_logger``); each ``PrintLogger.msg()`` call performs
+    a synchronous ``file.write(...)`` that flushes on the trailing newline.
+    Under nominal local-disk conditions every write is sub-millisecond, but
+    under stalled-disk pathologies (network-mounted ``tasks/``, snapshot
+    freeze) a sync write would block the asyncio loop and breach the SC2
+    "polls return within 200 ms" invariant DEPLOY.md re-asserts.
+
+    Routing every emission through ``anyio.to_thread.run_sync`` keeps the
+    D-22 async-I/O guard strict: ALL blocking file writes — open, close,
+    AND every line emission — hop a worker thread. ``tlog`` may be ``None``
+    when the per-task log open failed (line 182 path); the helper no-ops in
+    that case so the call site stays unconditional.
+
+    Failures are swallowed (best-effort): log emission must NEVER re-raise
+    into the lifecycle path. The global stderr logger already carries the
+    pre-file events via the buffer-and-replay pattern, so a per-task write
+    failure is recoverable noise, not lost information.
+    """
+    if tlog is None:
+        return
+    try:
+        await anyio.to_thread.run_sync(lambda: tlog.info(event, **kw))
+    except Exception:  # noqa: BLE001 — log emission must never re-raise
+        pass
+
+
 class TaskManager:
     """Orchestrates the validate → lock → write → run → persist → release pipeline."""
 
@@ -187,10 +217,12 @@ class TaskManager:
             # 3b. Replay the pre-file event buffer into the per-task file
             # logger in original order. Test 3 in 03-01-PLAN.md asserts
             # this is what makes ``task_started`` + ``task_lock_acquired``
-            # visible in the per-task ``server.jsonl``.
+            # visible in the per-task ``server.jsonl``. Each replay goes
+            # through ``_emit_tlog`` so the sync ``PrintLogger.msg()`` write
+            # hops a worker thread (D-22 strict — see helper docstring).
             if tlog is not None:
                 for evt, kw in early_events:
-                    tlog.info(evt, **kw)
+                    await _emit_tlog(tlog, evt, **kw)
                 early_events.clear()
 
             # 4. Atomic-write input.md + initial status.json
@@ -248,8 +280,7 @@ class TaskManager:
             # The prompt is NEVER logged (T-03-01-04 mitigation) — only
             # the structural fact that the call is about to begin.
             agent_call_started = anyio.current_time()
-            if tlog is not None:
-                tlog.info("agent_call_started")
+            await _emit_tlog(tlog, "agent_call_started")
 
             try:
                 output_text = await asyncio.wait_for(
@@ -284,12 +315,12 @@ class TaskManager:
             agent_elapsed_ms = int(
                 (anyio.current_time() - agent_call_started) * 1000
             )
-            if tlog is not None:
-                tlog.info(
-                    "agent_call_returned",
-                    elapsed_ms=agent_elapsed_ms,
-                    status=agent_call_outcome,
-                )
+            await _emit_tlog(
+                tlog,
+                "agent_call_returned",
+                elapsed_ms=agent_elapsed_ms,
+                status=agent_call_outcome,
+            )
 
             # 6. Atomic-write output.md FIRST (EXEC-04 order — sacred)
             await anyio.to_thread.run_sync(
@@ -319,25 +350,23 @@ class TaskManager:
             # D-39: task_completed / task_failed AFTER the terminal
             # status.json write. Order matters — the on-disk truth
             # exists before the log line claims it.
-            if tlog is not None:
-                if terminal == "completed":
-                    tlog.info("task_completed", status="completed")
-                else:
-                    tlog.info(
-                        "task_failed",
-                        status="failed",
-                        error_class=error_class or "Unknown",
-                        error_reason=error_reason or "unknown",
-                    )
+            if terminal == "completed":
+                await _emit_tlog(tlog, "task_completed", status="completed")
+            else:
+                await _emit_tlog(
+                    tlog,
+                    "task_failed",
+                    status="failed",
+                    error_class=error_class or "Unknown",
+                    error_reason=error_reason or "unknown",
+                )
         finally:
             # 6. Lock release first (sacred contract from Phase 1) then
             # D-39 task_lock_released to the per-task logger.
             await self.lock_mgr.release()
-            if tlog is not None:
-                try:
-                    tlog.info("task_lock_released")
-                except Exception:  # noqa: BLE001 — log emission must never re-raise
-                    pass
+            # ``_emit_tlog`` already swallows exceptions and no-ops on
+            # ``tlog is None`` so the finally path stays clean.
+            await _emit_tlog(tlog, "task_lock_released")
             # 7. Close the per-task file handle on a worker thread (D-22).
             if tlog_fh is not None:
                 try:
