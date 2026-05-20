@@ -106,6 +106,33 @@ python financial-analyst/scripts/forecast_builder.py forecast_data.json --format
 **Total Tools:** 7 Python automation tools
 **Commands:** /financial-health, /saas-health
 
+---
+
+## Generated Artifacts
+
+Authoritative design and planning artifacts produced by the MCP server workstream. Read these before changing server code or wire contracts.
+
+### Wire Contract (OpenSpec + PlantUML)
+
+- [`specs/README.md`](specs/README.md) — index of all capabilities with per-capability spec + diagram links
+- [`specs/_common.puml`](specs/_common.puml) — shared participants/styles included by every diagram
+- Per-capability sequence diagrams (source `.puml` + rendered `.svg`):
+  - [`specs/init/`](specs/init/) — server bootstrap (not an MCP tool)
+  - [`specs/list-skills/`](specs/list-skills/) — `list_skills` tool
+  - [`specs/create-task/`](specs/create-task/) — `create_task` tool (single-task lock + structured `BUSY` error)
+  - [`specs/get-task-status/`](specs/get-task-status/) — `get_task_status` tool (read-only poll)
+  - [`specs/get-task-result/`](specs/get-task-result/) — `get_task_result` tool (terminal-state read)
+
+**Rule:** the spec + diagram are the wire contract. Edit them **before** the implementation, never after — Phase 0 gating is non-negotiable per project Constraints.
+
+### Planning Artifacts (.planning/)
+
+- [`.planning/PROJECT.md`](.planning/PROJECT.md) — project charter, core value, constraints
+- [`.planning/REQUIREMENTS.md`](.planning/REQUIREMENTS.md) — numbered requirements (MCP-XX, EXEC-XX, INIT-XX, UNIV-XX, OPS-XX, D-XX)
+- [`.planning/ROADMAP.md`](.planning/ROADMAP.md) — milestone phase breakdown with requirement → phase mapping
+- [`.planning/STATE.md`](.planning/STATE.md) — current position, progress, blockers
+- [`.planning/phases/`](.planning/phases/) — per-phase CONTEXT, RESEARCH, PLAN, SUMMARY, VERIFICATION reports
+
 <!-- GSD:project-start source:PROJECT.md -->
 ## Project
 

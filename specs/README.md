@@ -8,12 +8,17 @@
 
 ## Capabilities
 
-This OpenSpec workspace declares wire contracts for the four MCP tools the server exposes:
+This OpenSpec workspace declares wire contracts for the four MCP tools the server exposes (plus the server bootstrap sequence). Each capability has a `spec.md` (the wire contract) and a co-located PlantUML sequence diagram (`*.puml` source + rendered `*.svg`):
 
-- `specs/list-skills/` — `list_skills` tool: return the frozen in-memory catalog of available skills.
-- `specs/create-task/` — `create_task` tool: accept `{prompt, skills[]}`, acquire the single-task lock, run the agent, return `task_id` (or a structured `BUSY` error when another task is in flight).
-- `specs/get-task-status/` — `get_task_status` tool: read-only status poll returning one of `{working, completed, failed}` plus elapsed time.
-- `specs/get-task-result/` — `get_task_result` tool: terminal-state read of `output.md` + metadata; returns an error result (not a wait) when the task is still working.
+| Capability | Spec | Diagram (source) | Diagram (rendered) |
+|---|---|---|---|
+| Server bootstrap (not a tool) | [`init/spec.md`](init/spec.md) | [`init/init.puml`](init/init.puml) | [`init/init.svg`](init/init.svg) |
+| `list_skills` tool | [`list-skills/spec.md`](list-skills/spec.md) | [`list-skills/list_skills.puml`](list-skills/list_skills.puml) | [`list-skills/list_skills.svg`](list-skills/list_skills.svg) |
+| `create_task` tool | [`create-task/spec.md`](create-task/spec.md) | [`create-task/create_task.puml`](create-task/create_task.puml) | [`create-task/create_task.svg`](create-task/create_task.svg) |
+| `get_task_status` tool | [`get-task-status/spec.md`](get-task-status/spec.md) | [`get-task-status/get_task_status.puml`](get-task-status/get_task_status.puml) | [`get-task-status/get_task_status.svg`](get-task-status/get_task_status.svg) |
+| `get_task_result` tool | [`get-task-result/spec.md`](get-task-result/spec.md) | [`get-task-result/get_task_result.puml`](get-task-result/get_task_result.puml) | [`get-task-result/get_task_result.svg`](get-task-result/get_task_result.svg) |
+
+**Shared diagram include:** [`_common.puml`](_common.puml) — `!include`-d by every per-capability `.puml` for shared participants/styles. Edit it before per-diagram tweaks if a change applies to all flows.
 
 Capability folder names are **kebab-case** per OpenSpec convention; the corresponding tool names in code remain `snake_case` — different identifier spaces.
 
