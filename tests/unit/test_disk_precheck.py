@@ -107,6 +107,43 @@ def test_zero_or_negative_raises_valueerror(bad):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Test 7 — WR-03: non-canonical positive-integer forms are rejected
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "1_000",     # underscored digit grouping — Python int() accepts,
+                     # parser rejects per README contract.
+        "0100",      # leading zero — shell operators expecting octal would
+                     # be surprised that Python 3 returns 100, not 64.
+        "+100",      # explicit positive sign — semantically noise.
+        "  +50  ",   # explicit positive sign with surrounding whitespace.
+        "01",        # leading zero on small value.
+    ],
+)
+def test_non_canonical_positive_integer_rejected(bad):
+    """WR-03: even values Python's ``int()`` would accept are rejected when
+    they fall outside the documented canonical form."""
+    with pytest.raises(ValueError) as exc_info:
+        _parse_free_space_mb_env(env={"FSMC_FREE_SPACE_MB": bad})
+    msg = str(exc_info.value)
+    assert "FSMC_FREE_SPACE_MB" in msg, (
+        f"error message must name the env var; got: {msg!r}"
+    )
+    assert "canonical" in msg.lower(), (
+        f"error message must explain the canonical-form requirement; "
+        f"got: {msg!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 8 — env=None honors os.environ; explicit env= overrides it
+# ---------------------------------------------------------------------------
+
+
 def test_helper_never_touches_os_environ(monkeypatch):
     """Test-injection contract: explicit env= ALWAYS wins over os.environ.
 

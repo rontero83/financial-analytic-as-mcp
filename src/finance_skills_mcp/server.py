@@ -117,11 +117,32 @@ def _parse_free_space_mb_env(env: Mapping[str, str] | None = None) -> int:
     """Parse ``FSMC_FREE_SPACE_MB`` into a positive int (D-41).
 
     Default when unset or empty/whitespace: ``100`` (megabytes). Invalid
-    values (non-integer, zero, negative) raise ``ValueError`` so
-    ``app_lifespan`` can map the failure to ``sys.exit(5)`` with an
-    actionable stderr message — distinct from D-32 ``sys.exit(3)``
-    (duplicate skill name) and D-33 ``sys.exit(4)`` (empty catalog), so
-    the operator can ``case $?`` in shell to triage.
+    values raise ``ValueError`` so ``app_lifespan`` can map the failure to
+    ``sys.exit(5)`` with an actionable stderr message — distinct from D-32
+    ``sys.exit(3)`` (duplicate skill name) and D-33 ``sys.exit(4)`` (empty
+    catalog), so the operator can ``case $?`` in shell to triage.
+
+    **Parsing contract (operator-facing — duplicated in README's
+    Configuration table):**
+
+    - Decimal (base-10) ONLY. Hex (``0x64``), binary (``0b10``),
+      and scientific notation (``1e3``) are rejected — ``int(value, 10)``
+      enforces base-10 explicitly.
+    - Surrounding whitespace is stripped (``"  50  "`` parses as ``50``)
+      so operators may safely quote the value in their shell config.
+    - **No digit-grouping underscores.** ``FSMC_FREE_SPACE_MB=1_000``
+      is rejected even though Python's ``int()`` accepts it, because the
+      env-var contract is a plain shell-readable integer; underscores
+      would surprise the operator inspecting the live process env.
+    - **No leading zeros** beyond a bare ``"0"``. ``"0100"`` is rejected
+      because shell operators familiar with octal might expect it to
+      mean 64; Python 3's ``int("0100")`` returns ``100`` which is a
+      footgun. Reject the form entirely rather than choose a side.
+    - **No explicit sign.** ``"+100"`` and ``"-1"`` are both rejected —
+      the value semantically is a positive count of megabytes, so the
+      ``+`` is noise and the ``-`` is invalid. The canonical form is
+      ``[1-9][0-9]*`` after the whitespace strip.
+    - **Zero** is rejected (``0 MB`` is meaningless as a threshold).
 
     Args:
         env: a mapping to read from (defaults to ``os.environ``). Tests
@@ -133,20 +154,44 @@ def _parse_free_space_mb_env(env: Mapping[str, str] | None = None) -> int:
         The configured threshold in megabytes (positive int).
 
     Raises:
-        ValueError: if the env value is a non-integer, zero, or negative.
-            The message names both the env var and the offending value so
-            operators can copy-paste the diagnostic into their shell config.
+        ValueError: if the env value violates any clause of the parsing
+            contract above. The message names both the env var and the
+            offending value so operators can copy-paste the diagnostic
+            into their shell config.
     """
     if env is None:
         env = os.environ
     raw = env.get("FSMC_FREE_SPACE_MB", "").strip()
     if not raw:
         return 100  # D-41 default
+
+    # Canonical form enforcement: bare digits, no sign, no underscore, no
+    # leading zero (except the standalone "0" which fails the positivity
+    # check below). Rejecting non-canonical forms BEFORE calling int()
+    # gives operators a single, predictable error path; Python's int()
+    # silently accepting "1_000" or "0100" would otherwise produce a
+    # value the README docs do not promise to support.
+    canonical = raw == "0" or (
+        raw[0] in "123456789" and all(ch.isdigit() for ch in raw)
+    )
+    if not canonical:
+        # Phrasing preserves the "positive integer" substring that the
+        # existing unit suite (test_disk_precheck.py) asserts on for the
+        # zero/negative cases — the canonical-form check now catches
+        # leading-minus values like "-1" before they reach the value-sign
+        # branch, so the message wording must stay backwards-compatible.
+        raise ValueError(
+            f"FSMC_FREE_SPACE_MB must be a positive integer in canonical "
+            f"decimal form (no sign, no underscores, no leading zeros, "
+            f"no alternate base); got {raw!r}"
+        )
+
+    # ``int(raw, 10)`` is explicit about base — guards against a future
+    # refactor accidentally re-introducing auto-base detection via
+    # ``int(raw, 0)``. The canonical check above already excludes
+    # "0xNN" / "0bNN" so this is defense-in-depth.
     try:
-        # int("100.5") raises ValueError — exactly what we want (D-41 is
-        # positive INTEGER, not float). int(" 50 ") tolerates surrounding
-        # whitespace which we keep so operators can quote their env values.
-        value = int(raw)
+        value = int(raw, 10)
     except ValueError as exc:
         raise ValueError(
             f"FSMC_FREE_SPACE_MB must be a positive integer; got {raw!r}"
