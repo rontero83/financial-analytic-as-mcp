@@ -126,9 +126,7 @@ to apply changes).
 - **Deploy to production:** [`DEPLOY.md`](./DEPLOY.md) — preflight checklist,
   runtime supervision (systemd / launchd sketches), the exit-code troubleshooting
   table, and the full "Looks Done But Isn't" verification list.
-- **Roadmap:** [`.planning/ROADMAP.md`](./.planning/ROADMAP.md) — phase plan,
-  requirements traceability, and current progress.
 - **Wire contract:** [`specs/README.md`](./specs/README.md) — OpenSpec-style specs
   + PlantUML sequence diagrams for every MCP tool and the init flow.
 - **AI-assisted contributor guide:** [`CLAUDE.md`](./CLAUDE.md) — project
-  guidelines, GSD workflow enforcement, and stack notes.
+  guidelines and stack notes for AI coding assistants.

@@ -6,8 +6,6 @@ authors = [
     { name = "Stas", email = "rontero@gmail.com" }
 ]
 requires-python = ">=3.10"
-# Phase 1 runtime deps (added 2026-05-19 — plan 01-01).
-# Standard stack per .planning/phases/01-vertical-slice-4-tools-fixture-skill/01-RESEARCH.md §Standard Stack.
 dependencies = [
     "fastmcp>=3.3.1,<4",
     "claude-agent-sdk>=0.2.82,<0.3",

@@ -143,10 +143,7 @@ Schedule via cron / systemd timer as appropriate for your retention policy.
 ## Verification
 
 Before declaring any deployment "live", walk the **"Looks Done But Isn't"
-checklist** below. This list is reproduced verbatim from
-[`.planning/research/PITFALLS.md`](./.planning/research/PITFALLS.md) (the source
-of truth — if these two copies ever drift, that file wins; sync DEPLOY.md to it
-in the same commit that edits the checklist).
+checklist** below.
 
 ### Looks Done But Isn't Checklist
 

@@ -9,8 +9,8 @@ the single-task lock, does NOT call the Claude Agent SDK, and is designed to ret
 the three canonical status values — `working`, `completed`, `failed` — that the rest of the
 contract treats as the single source of truth for task lifecycle state. The vocabulary is
 deliberately aligned with MCP 2025-11-25's Tasks experimental spec (research correction
-C-01); see `.planning/PROJECT.md` and the DECISION-LOG for the C-01 history. Only the three
-enum values declared in `## Schemas` are valid; any other value is a contract violation.
+C-01). Only the three enum values declared in `## Schemas` are valid; any other
+value is a contract violation.
 
 ## Diagram
 

@@ -71,7 +71,7 @@ and pass through to the catalog as-is.
 ### Requirement: Duplicate skill names abort startup
 If two `SKILL.md` files declare the same `name` in their frontmatter, the SkillIndexer SHALL
 refuse to start the server. This is a fail-loud guard against the indexer landmine flagged
-in `.planning/codebase/CONCERNS.md` and in research correction C-05.
+in research correction C-05.
 
 #### Scenario: Duplicate name across roots
 - GIVEN `skills/foo/SKILL.md` declares `name: foo`

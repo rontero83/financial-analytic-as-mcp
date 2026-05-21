@@ -11,10 +11,10 @@ Real skills under test:
     - saas-metrics-coach             (skills/saas-metrics-coach/SKILL.md)
     - business-investment-advisor    (skills/business-investment-advisor/SKILL.md)
 
-Success criteria (`.planning/ROADMAP.md` Phase 3 SC3):
+Success criteria:
     Nightly CI invokes ``create_task`` against the real finance skills via the
     live Claude Agent SDK and asserts non-empty ``output.md`` + ``completed``
-    status, within the configured per-task timeout (EXEC-06 default 600 s).
+    status, within the configured per-task timeout (default 600 s).
 
 The conftest in this directory auto-skips these tests when neither
 ``ANTHROPIC_API_KEY`` nor ``CLAUDE_CODE_OAUTH_TOKEN`` is set, so default
