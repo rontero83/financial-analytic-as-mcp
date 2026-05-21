@@ -36,3 +36,7 @@ build/
 
 # Phase 2 runtime: dynamic catalog persistence (not present in Phase 1).
 /.skills-index/
+
+# GSD planning workspace — local-only project memory (CONTEXT/PLAN/SUMMARY/VERIFICATION/etc).
+# Never published to the public repo; restored from history rewrite on 2026-05-21.
+/.planning/
